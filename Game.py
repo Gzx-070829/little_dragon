@@ -99,6 +99,9 @@ def init_database():
         print(f"读取最高分失败: {e}")
 
     coins, upgrades = load_player_state(conn)
+    print(f"[DEBUG] equipped_skin={upgrades.get('equipped_skin')}, skin_runner={upgrades.get('skin_runner')}")
+    if upgrades.get('equipped_skin') == 'runner':
+        print(f"[DEBUG] runner skin load test={Dinosaur.can_load_runner_skin()}")
     return conn, highest_score, coins, upgrades
 
 
@@ -128,6 +131,7 @@ def load_player_state(conn):
                 """
             )
             conn.commit()
+            print(f"[DEBUG] equipped_skin={upgrades.get('equipped_skin')}, skin_runner={upgrades.get('skin_runner')}")
             return 0, upgrades
 
         (
@@ -157,6 +161,7 @@ def load_player_state(conn):
         upgrades['equipped_cloud_skin'] = equipped_cloud_skin if equipped_cloud_skin in ('default', 'text_cloud') else 'default'
         upgrades['coin_icecream_skin'] = int(coin_icecream_skin)
         upgrades['equipped_coin_skin'] = equipped_coin_skin if equipped_coin_skin in ('default', 'icecream') else 'default'
+        print(f"[DEBUG] equipped_skin={upgrades.get('equipped_skin')}, skin_runner={upgrades.get('skin_runner')}")
         return int(coins), upgrades
     except Exception as e:
         print(f"读取玩家状态失败: {e}")

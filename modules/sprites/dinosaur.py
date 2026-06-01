@@ -29,9 +29,19 @@ def _make_duck_frame(frame, target_height):
     return pygame.transform.scale(frame, (duck_width, duck_height))
 
 
+_RUNNER_SHEET_CACHE = {}
+
+
 def load_runner_sheet_frames(heights):
     """Load, background-strip, slice and cache the custom runner sprite sheet."""
+    target_height = max(100, min(115, int(heights[0])))
+    cache_key = ('runner', core.IMAGE_PATHS['custom_runner_sheet'], target_height, int(heights[1]))
+    cached = _RUNNER_SHEET_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     sheet = pygame.image.load(core.IMAGE_PATHS['custom_runner_sheet']).convert_alpha()
+    sheet = remove_edge_background(sheet, bg='white', tolerance=34)
     sheet_width, sheet_height = sheet.get_size()
     columns, rows = 6, 2
     cell_width = max(1, sheet_width // columns)
@@ -45,26 +55,26 @@ def load_runner_sheet_frames(heights):
             if rect.width <= 0 or rect.height <= 0:
                 continue
             cell = sheet.subsurface(rect).copy()
-            # Process each small cell instead of flood-filling the whole sheet.
+            # Process every sprite-sheet cell again so white backgrounds between cells are removed.
             cell = remove_edge_background(cell, bg='white', tolerance=34)
             cell = trim_transparent_surface(cell)
             bounds = cell.get_bounding_rect()
             if bounds.width <= 1 or bounds.height <= 1:
                 continue
-            frames.append(scale_to_fit(cell, target_height=heights[0]))
+            frames.append(scale_to_fit(cell, target_height=target_height))
 
-    if not frames:
-        raise ValueError('runner_sheet 中没有可用人物帧')
+    if len(frames) < 2:
+        raise ValueError(f'runner_sheet 可用帧过少: {len(frames)}')
 
-    run_frames = frames[:10]
-    if len(run_frames) < 6 and len(frames) >= 2:
-        while len(run_frames) < 6:
-            run_frames.append(frames[len(run_frames) % len(frames)].copy())
-    elif len(run_frames) < 2:
-        raise ValueError('runner_sheet 可用帧过少')
+    run_frames = frames[:12]
+    while len(run_frames) < 6:
+        run_frames.append(frames[len(run_frames) % len(frames)].copy())
 
     duck_frame = _make_duck_frame(run_frames[0], heights[1])
-    return run_frames + [duck_frame]
+    images = run_frames + [duck_frame]
+    _RUNNER_SHEET_CACHE[cache_key] = images
+    print(f"奔跑人物皮肤加载成功，帧数：{len(run_frames)}")
+    return images
 
 
 def apply_skin(surface, skin):
@@ -94,6 +104,7 @@ class Dinosaur(pygame.sprite.Sprite):
     """恐龙玩家角色。"""
 
     _IMAGE_CACHE = {}
+    _LAST_RUNNER_LOAD_OK = False
 
     @classmethod
     def _get_default_images(cls, imagepaths, heights, skin):
@@ -117,19 +128,34 @@ class Dinosaur(pygame.sprite.Sprite):
         cache_key = (tuple(imagepaths), tuple(heights), skin)
         cached = cls._IMAGE_CACHE.get(cache_key)
         if cached is not None:
+            if skin == 'runner':
+                cls._LAST_RUNNER_LOAD_OK = True
             return cached
 
         if skin == 'runner':
             try:
                 images = load_runner_sheet_frames(heights)
+                cls._LAST_RUNNER_LOAD_OK = True
+                cls._IMAGE_CACHE[cache_key] = images
+                return images
             except Exception as e:
-                print(f"加载奔跑人物皮肤失败，使用默认皮肤: {e}")
-                images = cls._get_default_images(imagepaths, heights, 'default')
-        else:
-            images = cls._get_default_images(imagepaths, heights, skin)
+                cls._LAST_RUNNER_LOAD_OK = False
+                print(f"加载奔跑人物皮肤失败: {e}")
+                print('奔跑人物加载失败，已使用默认皮肤')
+                return cls._get_default_images(imagepaths, heights, 'default')
 
+        images = cls._get_default_images(imagepaths, heights, skin)
         cls._IMAGE_CACHE[cache_key] = images
         return images
+
+    @classmethod
+    def can_load_runner_skin(cls):
+        try:
+            frames = load_runner_sheet_frames((110, 78))
+            return len(frames) >= 2
+        except Exception as e:
+            print(f"奔跑人物皮肤测试加载失败: {e}")
+            return False
 
     def __init__(self, imagepaths, position=None, heights=(110, 78), skin='default', **kwargs):
         """
@@ -146,6 +172,10 @@ class Dinosaur(pygame.sprite.Sprite):
 
         self.skin = skin
         self.images = self._get_images(imagepaths, heights, self.skin)
+        self.runner_skin_loaded = self.skin == 'runner' and self._LAST_RUNNER_LOAD_OK
+        print(f"[DEBUG] Dinosaur skin={self.skin}, image_count={len(self.images)}")
+        if self.runner_skin_loaded:
+            print(f"[DEBUG] runner skin active, frames={len(self.images)}")
         self.duck_image_idx = len(self.images) - 1
         self.dead_image_idx = min(4, max(0, len(self.images) - 2))
         self.running_frame_count = max(1, len(self.images) - 1)
