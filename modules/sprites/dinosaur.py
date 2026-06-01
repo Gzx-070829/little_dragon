@@ -1,25 +1,49 @@
 import pygame
 
+import core
+
+
+def trim_surface(surface):
+    """裁掉 Surface 四周的透明边距，保证贴地和碰撞区域更准确。"""
+    bounds = surface.get_bounding_rect()
+    if bounds.width == 0 or bounds.height == 0:
+        return surface.copy()
+    return surface.subsurface(bounds).copy()
+
+
+def scale_to_height(surface, height):
+    """按目标高度等比缩放 Surface。"""
+    width, current_height = surface.get_size()
+    if current_height == 0:
+        return surface.copy()
+    target_width = max(1, int(width * height / current_height))
+    return pygame.transform.smoothscale(surface, (target_width, height))
+
 
 class Dinosaur(pygame.sprite.Sprite):
     """恐龙玩家角色。"""
 
-    def __init__(self, imagepaths, position=(40, 550), size=((80, 100), (120, 100)), **kwargs):
+    def __init__(self, imagepaths, position=(40, core.GROUND_Y), heights=(110, 78), **kwargs):
         """
         初始化恐龙角色
         Args:
             imagepaths (list): 恐龙图片路径列表 [正常状态, 下蹲状态]
-            position (tuple): 恐龙在屏幕上的初始位置
-            size (list): 恐龙图片的缩放尺寸 [正常尺寸, 下蹲尺寸]
+            position (tuple): 恐龙初始位置，含义为 (left, bottom)
+            heights (tuple): 恐龙图片的目标高度 [正常高度, 下蹲高度]
         """
         super().__init__()
 
         self.images = []
         image = pygame.image.load(imagepaths[0]).convert_alpha()
         for i in range(5):
-            self.images.append(pygame.transform.scale(image.subsurface((i * 270, 0), (270, 410)), size[0]))
+            frame = image.subsurface((i * 270, 0), (270, 410))
+            frame = trim_surface(frame)
+            self.images.append(scale_to_height(frame, heights[0]))
+
         image = pygame.image.load(imagepaths[1]).convert_alpha()
-        self.images.append(pygame.transform.scale(image.subsurface((0, 0), (2015, 1338)), size[1]))
+        duck_frame = image.subsurface((0, 0), (2015, 1338))
+        duck_frame = trim_surface(duck_frame)
+        self.images.append(scale_to_height(duck_frame, heights[1]))
 
         self.image_idx = 0
         self.image = self.images[self.image_idx]

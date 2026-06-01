@@ -5,15 +5,15 @@ import core
 class Ground(pygame.sprite.Sprite):
     """地面类（无限滚动）"""
 
-    def __init__(self, imagepath, position, **kwargs):
+    def __init__(self, imagepath, position=(0, core.GROUND_Y - 12), **kwargs):
         super().__init__()
         # 加载地面图片
         self.image = pygame.image.load(imagepath).convert_alpha()
 
         sw, sh = core.SCREENSIZE
 
-        # 3. 缩放到 屏幕宽度 × 100高度（你可以自己改高度）
-        self.image = pygame.transform.scale(self.image, (sw, 100))
+        # 缩放到屏幕宽度，并让地面纹理贴近统一的 GROUND_Y 基准线。
+        self.image = pygame.transform.scale(self.image, (sw, 70))
         self.rect = self.image.get_rect()
         self.rect.topleft = position
 
@@ -22,7 +22,7 @@ class Ground(pygame.sprite.Sprite):
         self.rect2.left = self.rect.right  # 放在第一个地面右边紧挨着
         self.rect2.bottom = self.rect.bottom
 
-        self.speed = -10  # 地面向左移动
+        self.speed = -10  # 地面向左移动，主循环会同步为当前 game_speed
 
     def update(self):
         # 两个地面同时向左移动
