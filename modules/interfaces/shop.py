@@ -4,21 +4,21 @@ import pygame
 UPGRADE_ITEMS = {
     pygame.K_1: {
         'key': 'jump_boost',
-        'name': 'Jump Boost',
+        'name': '跳跃强化',
         'cost': 5,
-        'effect': 'Higher jumps',
+        'effect': '提高跳跃高度',
     },
     pygame.K_2: {
         'key': 'slow_start',
-        'name': 'Slow Start',
+        'name': '慢速开局',
         'cost': 8,
-        'effect': 'Slower starting speed',
+        'effect': '降低初始速度',
     },
     pygame.K_3: {
         'key': 'magnet',
-        'name': 'Magnet',
+        'name': '金币磁铁',
         'cost': 10,
-        'effect': 'Pull nearby coins to the dino',
+        'effect': '靠近金币时自动吸附',
     },
 }
 
@@ -26,30 +26,30 @@ SKIN_ITEMS = {
     pygame.K_4: {
         'key': 'default',
         'owned_key': None,
-        'name': 'Default Skin',
+        'name': '默认皮肤',
         'cost': 0,
-        'cost_text': 'FREE',
+        'cost_text': '免费',
     },
     pygame.K_5: {
         'key': 'blue',
         'owned_key': 'skin_blue',
-        'name': 'Blue Dino',
+        'name': '蓝色恐龙',
         'cost': 6,
-        'cost_text': '6 coins',
+        'cost_text': '6 金币',
     },
     pygame.K_6: {
         'key': 'golden',
         'owned_key': 'skin_golden',
-        'name': 'Golden Dino',
+        'name': '黄金恐龙',
         'cost': 12,
-        'cost_text': '12 coins',
+        'cost_text': '12 金币',
     },
     pygame.K_7: {
         'key': 'night',
         'owned_key': 'skin_night',
-        'name': 'Night Dino',
+        'name': '暗夜恐龙',
         'cost': 15,
-        'cost_text': '15 coins',
+        'cost_text': '15 金币',
     },
 }
 
@@ -72,10 +72,10 @@ def _owns_skin(upgrades, skin_item):
 
 def _skin_status(upgrades, skin_item):
     if upgrades.get('equipped_skin', 'default') == skin_item['key']:
-        return 'EQUIPPED'
+        return '已装备'
     if _owns_skin(upgrades, skin_item):
-        return 'OWNED / EQUIP'
-    return 'BUY'
+        return '已拥有 / 装备'
+    return '购买'
 
 
 def _save_if_needed(save_callback, coins, upgrades):
@@ -86,9 +86,9 @@ def _save_if_needed(save_callback, coins, upgrades):
 def ShopInterface(screen, game_surface, cfg, coins, upgrades, sounds=None, save_callback=None):
     """简单商城界面。所有内容先绘制到固定逻辑画布。"""
     upgrades = upgrades.copy()
-    font_title = pygame.font.Font(cfg.FONT_PATHS['joystix'], 42)
-    font_medium = pygame.font.Font(cfg.FONT_PATHS['joystix'], 21)
-    font_small = pygame.font.Font(cfg.FONT_PATHS['joystix'], 16)
+    font_title = cfg.get_font(46)
+    font_medium = cfg.get_font(26)
+    font_small = cfg.get_font(21)
     clock = pygame.time.Clock()
     message = ''
     message_color = (83, 83, 83)
@@ -114,15 +114,15 @@ def ShopInterface(screen, game_surface, cfg, coins, upgrades, sounds=None, save_
                 if upgrade:
                     upgrade_key = upgrade['key']
                     if upgrades.get(upgrade_key, 0):
-                        message = f"{upgrade['name']} OWNED"
+                        message = f"{upgrade['name']} 已经拥有"
                         message_color = (83, 83, 83)
                     elif coins < upgrade['cost']:
-                        message = 'NOT ENOUGH COINS'
+                        message = '金币不足'
                         message_color = (210, 60, 60)
                     else:
                         coins -= upgrade['cost']
                         upgrades[upgrade_key] = 1
-                        message = f"BOUGHT {upgrade['name']}"
+                        message = f"购买成功：{upgrade['name']}"
                         message_color = (46, 145, 70)
                         _save_if_needed(save_callback, coins, upgrades)
                         if sounds:
@@ -133,17 +133,17 @@ def ShopInterface(screen, game_surface, cfg, coins, upgrades, sounds=None, save_
                     owned = _owns_skin(upgrades, skin)
                     if not owned:
                         if coins < skin['cost']:
-                            message = 'NOT ENOUGH COINS'
+                            message = '金币不足'
                             message_color = (210, 60, 60)
                             continue
                         coins -= skin['cost']
                         upgrades[skin['owned_key']] = 1
-                        message = f"BOUGHT AND EQUIPPED {skin['name']}"
+                        message = f"购买成功，已装备：{skin['name']}"
                         message_color = (46, 145, 70)
                         if sounds:
                             sounds['point'].play()
                     else:
-                        message = f"EQUIPPED {skin['name']}"
+                        message = f"已装备：{skin['name']}"
                         message_color = (46, 145, 70)
                         if sounds:
                             sounds['button'].play()
@@ -151,21 +151,21 @@ def ShopInterface(screen, game_surface, cfg, coins, upgrades, sounds=None, save_
                     _save_if_needed(save_callback, coins, upgrades)
 
         game_surface.fill((255, 255, 255))
-        _draw_centered(game_surface, font_title, 'SHOP', 55)
-        _draw_centered(game_surface, font_medium, f'COINS: {min(coins, 99999):05d}', 105)
+        _draw_centered(game_surface, font_title, '商城', 55)
+        _draw_centered(game_surface, font_medium, f'金币：{min(coins, 99999):05d}', 105)
 
-        _draw_text(game_surface, font_medium, 'UPGRADES', (90, 150))
+        _draw_text(game_surface, font_medium, '属性升级', (90, 150))
         y = 188
         for key_label, item in (('1', UPGRADE_ITEMS[pygame.K_1]), ('2', UPGRADE_ITEMS[pygame.K_2]), ('3', UPGRADE_ITEMS[pygame.K_3])):
             owned = bool(upgrades.get(item['key'], 0))
-            status = 'OWNED' if owned else 'BUY'
+            status = '已拥有' if owned else '购买'
             color = (46, 145, 70) if owned else (83, 83, 83)
-            line = f"[{key_label}] {item['name']:<11} - {item['cost']:>2} coins - {status}"
+            line = f"[{key_label}] {item['name']} - {item['cost']} 金币 - {status}"
             _draw_text(game_surface, font_small, line, (110, y), color)
             _draw_text(game_surface, font_small, item['effect'], (650, y), (105, 105, 105))
             y += 32
 
-        _draw_text(game_surface, font_medium, 'SKINS', (90, 310))
+        _draw_text(game_surface, font_medium, '恐龙皮肤', (90, 310))
         y = 348
         skin_rows = (
             ('4', SKIN_ITEMS[pygame.K_4]),
@@ -175,13 +175,13 @@ def ShopInterface(screen, game_surface, cfg, coins, upgrades, sounds=None, save_
         )
         for key_label, item in skin_rows:
             status = _skin_status(upgrades, item)
-            color = (46, 145, 70) if status != 'BUY' else (83, 83, 83)
-            line = f"[{key_label}] {item['name']:<12} - {item['cost_text']:<8} - {status}"
+            color = (46, 145, 70) if status != '购买' else (83, 83, 83)
+            line = f"[{key_label}] {item['name']} - {item['cost_text']} - {status}"
             _draw_text(game_surface, font_small, line, (110, y), color)
             y += 32
 
         if message:
             _draw_centered(game_surface, font_small, message, 505, message_color)
-        _draw_centered(game_surface, font_small, 'ESC: BACK', 550)
+        _draw_centered(game_surface, font_small, '按 ESC 返回', 550)
 
         cfg.blit_scaled(game_surface, screen)

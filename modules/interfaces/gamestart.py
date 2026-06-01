@@ -2,6 +2,15 @@ import pygame
 from ..sprites import Dinosaur
 
 
+TEXT_COLOR = (83, 83, 83)
+
+
+def _render_centered(surface, font, text, y, color=TEXT_COLOR):
+    text_surface = font.render(text, True, color)
+    rect = text_surface.get_rect(center=(surface.get_width() // 2, int(y)))
+    surface.blit(text_surface, rect)
+
+
 def GameStartInterface(screen, game_surface, sounds, cfg, coins=0, equipped_skin='default'):
     """
     游戏开始界面
@@ -13,34 +22,10 @@ def GameStartInterface(screen, game_surface, sounds, cfg, coins=0, equipped_skin
     Returns:
         str: 'start' 开始游戏, 'shop' 打开商城, 'quit' 退出
     """
-    logical_rect = game_surface.get_rect()
-
-    # 游戏标题文本
-    title_font = pygame.font.Font(cfg.FONT_PATHS['joystix'], 60)
-    title_text = title_font.render("D I N O  R U S H", True, (83, 83, 83))
-    title_rect = title_text.get_rect()
-    title_rect.centerx = logical_rect.centerx
-    title_rect.top = int(cfg.LOGICAL_SIZE[1] * 0.13)
-
-    # 设计者信息文本
-    designer_font = pygame.font.Font(cfg.FONT_PATHS['joystix'], 20)
-    designer_text = designer_font.render("PYGAME COURSE PROJECT", True, (83, 83, 83))
-    designer_rect = designer_text.get_rect()
-    designer_rect.centerx = logical_rect.centerx
-    designer_rect.top = int(cfg.LOGICAL_SIZE[1] * 0.25)
-
-    # 开始提示文本
-    tip_font = pygame.font.Font(cfg.FONT_PATHS['joystix'], 24)
-    tip_text = tip_font.render("SPACE/UP: START    S: SHOP    ESC: QUIT", True, (83, 83, 83))
-    tip_rect = tip_text.get_rect()
-    tip_rect.centerx = logical_rect.centerx
-    tip_rect.top = int(cfg.LOGICAL_SIZE[1] * 0.60)
-
-    coin_font = pygame.font.Font(cfg.FONT_PATHS['joystix'], 22)
-    coin_text = coin_font.render(f"COIN {min(coins, 99999):05d}", True, (83, 83, 83))
-    coin_rect = coin_text.get_rect()
-    coin_rect.centerx = logical_rect.centerx
-    coin_rect.top = int(cfg.LOGICAL_SIZE[1] * 0.68)
+    title_font = cfg.get_font(60)
+    designer_font = cfg.get_font(22)
+    tip_font = cfg.get_font(28)
+    coin_font = cfg.get_font(26)
 
     # 创建恐龙对象用于展示
     dino = Dinosaur(cfg.IMAGE_PATHS['dino'], skin=equipped_skin)
@@ -85,10 +70,13 @@ def GameStartInterface(screen, game_surface, sounds, cfg, coins=0, equipped_skin
         while ground_x < cfg.LOGICAL_SIZE[0]:
             game_surface.blit(ground_img, (ground_x, ground_rect.top))
             ground_x += ground_img.get_width()
-        game_surface.blit(title_text, title_rect)
-        game_surface.blit(designer_text, designer_rect)
-        game_surface.blit(tip_text, tip_rect)
-        game_surface.blit(coin_text, coin_rect)
+
+        _render_centered(game_surface, title_font, '像素恐龙快跑', cfg.LOGICAL_SIZE[1] * 0.13)
+        _render_centered(game_surface, designer_font, 'PYGAME 课程项目', cfg.LOGICAL_SIZE[1] * 0.25)
+        _render_centered(game_surface, tip_font, '按 空格 / ↑ 开始游戏', cfg.LOGICAL_SIZE[1] * 0.57)
+        _render_centered(game_surface, tip_font, '按 S 打开商城', cfg.LOGICAL_SIZE[1] * 0.64)
+        _render_centered(game_surface, tip_font, '按 ESC 退出游戏', cfg.LOGICAL_SIZE[1] * 0.71)
+        _render_centered(game_surface, coin_font, f'金币 {min(coins, 99999):05d}', cfg.LOGICAL_SIZE[1] * 0.80)
         dino.draw(game_surface)
 
         cfg.blit_scaled(game_surface, screen)

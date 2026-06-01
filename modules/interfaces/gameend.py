@@ -1,6 +1,15 @@
 import pygame
 
 
+TEXT_COLOR = (83, 83, 83)
+
+
+def _render_centered(surface, font, text, y, color=TEXT_COLOR):
+    text_surface = font.render(text, True, color)
+    rect = text_surface.get_rect(center=(surface.get_width() // 2, int(y)))
+    surface.blit(text_surface, rect)
+
+
 def GameEndInterface(screen, game_surface, cfg, score, highest_score, is_new_record, sounds, coins=0):
     """
     游戏结束界面
@@ -16,33 +25,12 @@ def GameEndInterface(screen, game_surface, cfg, score, highest_score, is_new_rec
 
     restart_img = pygame.image.load(cfg.IMAGE_PATHS['replay']).convert_alpha()
     restart_img = pygame.transform.scale(restart_img, (200, 200))
-    restart_rect = restart_img.get_rect(center=(logical_w // 2, int(logical_h * 0.72)))
+    restart_rect = restart_img.get_rect(center=(logical_w // 2, int(logical_h * 0.70)))
 
-    font_large = pygame.font.Font(cfg.FONT_PATHS['joystix'], 50)
-    font_small = pygame.font.Font(cfg.FONT_PATHS['joystix'], 22)
-    font_score = pygame.font.Font(cfg.FONT_PATHS['joystix'], 40)
-    font_new = pygame.font.Font(cfg.FONT_PATHS['joystix'], 50)
-
-    game_over_text = font_large.render("GAME OVER", True, (83, 83, 83))
-    game_over_rect = game_over_text.get_rect(center=(logical_w // 2, int(logical_h * 0.24)))
-
-    tip_text = font_small.render("SPACE/UP: RESTART    S: SHOP    ESC: QUIT", True, (83, 83, 83))
-    tip_rect = tip_text.get_rect(center=(logical_w // 2, int(logical_h * 0.92)))
-
-    score_text = font_score.render(f"SCORE: {min(score, 99999):05d}", True, (83, 83, 83))
-    score_rect = score_text.get_rect(center=(logical_w // 2, int(logical_h * 0.36)))
-
-    highest_text = font_score.render(f"HIGHEST: {min(highest_score, 99999):05d}", True, (83, 83, 83))
-    highest_rect = highest_text.get_rect(center=(logical_w // 2, int(logical_h * 0.43)))
-
-    coin_text = font_small.render(f"COIN {min(coins, 99999):05d}", True, (83, 83, 83))
-    coin_rect = coin_text.get_rect(center=(logical_w // 2, int(logical_h * 0.58)))
-
-    new_record_text = None
-    new_record_rect = None
-    if is_new_record:
-        new_record_text = font_new.render("NEW RECORD!", True, (255, 60, 60))
-        new_record_rect = new_record_text.get_rect(center=(logical_w // 2, int(logical_h * 0.50)))
+    font_large = cfg.get_font(56)
+    font_small = cfg.get_font(26)
+    font_score = cfg.get_font(34)
+    font_new = cfg.get_font(44)
 
     clock = pygame.time.Clock()
     while True:
@@ -71,13 +59,14 @@ def GameEndInterface(screen, game_surface, cfg, score, highest_score, is_new_rec
                     return 'restart'
 
         game_surface.fill((255, 255, 255))
-        game_surface.blit(game_over_text, game_over_rect)
-        game_surface.blit(score_text, score_rect)
-        game_surface.blit(highest_text, highest_rect)
+        _render_centered(game_surface, font_large, '游戏结束', logical_h * 0.18)
+        _render_centered(game_surface, font_score, f'分数 {min(score, 99999):05d}', logical_h * 0.31)
+        _render_centered(game_surface, font_score, f'最高 {min(highest_score, 99999):05d}', logical_h * 0.39)
         if is_new_record:
-            game_surface.blit(new_record_text, new_record_rect)
-        game_surface.blit(coin_text, coin_rect)
-        game_surface.blit(tip_text, tip_rect)
+            _render_centered(game_surface, font_new, '新的最高分！', logical_h * 0.49, (255, 60, 60))
+        _render_centered(game_surface, font_small, f'金币 {min(coins, 99999):05d}', logical_h * 0.56)
         game_surface.blit(restart_img, restart_rect)
+        _render_centered(game_surface, font_small, '按 空格 / ↑ 重新开始', logical_h * 0.86)
+        _render_centered(game_surface, font_small, '按 S 打开商城    按 ESC 退出游戏', logical_h * 0.93)
 
         cfg.blit_scaled(game_surface, screen)
