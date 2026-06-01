@@ -26,13 +26,12 @@ def _make_duck_frame(frame, target_height):
     width, height = frame.get_size()
     duck_height = max(1, int(target_height))
     duck_width = max(1, int(width * 1.08))
-    return pygame.transform.smoothscale(frame, (duck_width, duck_height))
+    return pygame.transform.scale(frame, (duck_width, duck_height))
 
 
 def load_runner_sheet_frames(heights):
     """Load, background-strip, slice and cache the custom runner sprite sheet."""
     sheet = pygame.image.load(core.IMAGE_PATHS['custom_runner_sheet']).convert_alpha()
-    sheet = remove_edge_background(sheet, bg='white', tolerance=34)
     sheet_width, sheet_height = sheet.get_size()
     columns, rows = 6, 2
     cell_width = max(1, sheet_width // columns)
@@ -46,6 +45,8 @@ def load_runner_sheet_frames(heights):
             if rect.width <= 0 or rect.height <= 0:
                 continue
             cell = sheet.subsurface(rect).copy()
+            # Process each small cell instead of flood-filling the whole sheet.
+            cell = remove_edge_background(cell, bg='white', tolerance=34)
             cell = trim_transparent_surface(cell)
             bounds = cell.get_bounding_rect()
             if bounds.width <= 1 or bounds.height <= 1:

@@ -25,6 +25,8 @@ def _default_upgrades():
         'equipped_skin': 'default',
         'cloud_text_skin': 0,
         'equipped_cloud_skin': 'default',
+        'coin_icecream_skin': 0,
+        'equipped_coin_skin': 'default',
     }
 
 
@@ -54,7 +56,9 @@ def init_database():
             skin_runner INTEGER NOT NULL DEFAULT 0,
             equipped_skin TEXT NOT NULL DEFAULT 'default',
             cloud_text_skin INTEGER NOT NULL DEFAULT 0,
-            equipped_cloud_skin TEXT NOT NULL DEFAULT 'default'
+            equipped_cloud_skin TEXT NOT NULL DEFAULT 'default',
+            coin_icecream_skin INTEGER NOT NULL DEFAULT 0,
+            equipped_coin_skin TEXT NOT NULL DEFAULT 'default'
         );
         """
     )
@@ -67,6 +71,8 @@ def init_database():
         "ALTER TABLE player_state ADD COLUMN equipped_skin TEXT NOT NULL DEFAULT 'default'",
         "ALTER TABLE player_state ADD COLUMN cloud_text_skin INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE player_state ADD COLUMN equipped_cloud_skin TEXT NOT NULL DEFAULT 'default'",
+        "ALTER TABLE player_state ADD COLUMN coin_icecream_skin INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE player_state ADD COLUMN equipped_coin_skin TEXT NOT NULL DEFAULT 'default'",
     ):
         try:
             cursor.execute(column_sql)
@@ -76,8 +82,9 @@ def init_database():
         """
         INSERT OR IGNORE INTO player_state (id, coins, jump_boost, slow_start, magnet,
                                             skin_blue, skin_golden, skin_night, skin_runner,
-                                            equipped_skin, cloud_text_skin, equipped_cloud_skin)
-        VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 'default', 0, 'default');
+                                            equipped_skin, cloud_text_skin, equipped_cloud_skin,
+                                            coin_icecream_skin, equipped_coin_skin)
+        VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 'default', 0, 'default', 0, 'default');
         """
     )
     conn.commit()
@@ -104,7 +111,8 @@ def load_player_state(conn):
             """
             SELECT coins, jump_boost, slow_start, magnet,
                    skin_blue, skin_golden, skin_night, skin_runner,
-                   equipped_skin, cloud_text_skin, equipped_cloud_skin
+                   equipped_skin, cloud_text_skin, equipped_cloud_skin,
+                   coin_icecream_skin, equipped_coin_skin
             FROM player_state WHERE id = 1;
             """
         )
@@ -114,8 +122,9 @@ def load_player_state(conn):
                 """
                 INSERT INTO player_state (id, coins, jump_boost, slow_start, magnet,
                                           skin_blue, skin_golden, skin_night, skin_runner,
-                                          equipped_skin, cloud_text_skin, equipped_cloud_skin)
-                VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 'default', 0, 'default');
+                                          equipped_skin, cloud_text_skin, equipped_cloud_skin,
+                                          coin_icecream_skin, equipped_coin_skin)
+                VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 'default', 0, 'default', 0, 'default');
                 """
             )
             conn.commit()
@@ -133,6 +142,8 @@ def load_player_state(conn):
             equipped_skin,
             cloud_text_skin,
             equipped_cloud_skin,
+            coin_icecream_skin,
+            equipped_coin_skin,
         ) = row
         upgrades['jump_boost'] = int(jump_boost)
         upgrades['slow_start'] = int(slow_start)
@@ -144,6 +155,8 @@ def load_player_state(conn):
         upgrades['equipped_skin'] = equipped_skin if equipped_skin in ('default', 'blue', 'golden', 'night', 'runner') else 'default'
         upgrades['cloud_text_skin'] = int(cloud_text_skin)
         upgrades['equipped_cloud_skin'] = equipped_cloud_skin if equipped_cloud_skin in ('default', 'text_cloud') else 'default'
+        upgrades['coin_icecream_skin'] = int(coin_icecream_skin)
+        upgrades['equipped_coin_skin'] = equipped_coin_skin if equipped_coin_skin in ('default', 'icecream') else 'default'
         return int(coins), upgrades
     except Exception as e:
         print(f"读取玩家状态失败: {e}")
@@ -159,7 +172,8 @@ def save_player_state(conn, coins, upgrades):
             UPDATE player_state
             SET coins = ?, jump_boost = ?, slow_start = ?, magnet = ?,
                 skin_blue = ?, skin_golden = ?, skin_night = ?, skin_runner = ?,
-                equipped_skin = ?, cloud_text_skin = ?, equipped_cloud_skin = ?
+                equipped_skin = ?, cloud_text_skin = ?, equipped_cloud_skin = ?,
+                coin_icecream_skin = ?, equipped_coin_skin = ?
             WHERE id = 1;
             """,
             (
@@ -174,6 +188,8 @@ def save_player_state(conn, coins, upgrades):
                 upgrades.get('equipped_skin', 'default'),
                 int(upgrades.get('cloud_text_skin', 0)),
                 upgrades.get('equipped_cloud_skin', 'default'),
+                int(upgrades.get('coin_icecream_skin', 0)),
+                upgrades.get('equipped_coin_skin', 'default'),
             )
         )
         conn.commit()
@@ -453,7 +469,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
         state['add_coin_timer'] = 0
         state['next_coin_gap'] = random.randint(100, 190)
         coin_y = random.choice([core.GROUND_Y - 35, core.GROUND_Y - 75, core.GROUND_Y - 110])
-        state['coins'].add(Coin(position=(core.SCREENSIZE[0] + random.randint(70, 170), coin_y), speed=current_speed))
+        state['coins'].add(Coin(position=(core.SCREENSIZE[0] + random.randint(70, 170), coin_y), speed=current_speed, skin=upgrades.get('equipped_coin_skin', 'default')))
 
     dino = state['dino']
     dino.update()
@@ -960,7 +976,7 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
                 core.GROUND_Y - 75,
                 core.GROUND_Y - 110,
             ])
-            coin_sprites_group.add(Coin(position=(x, coin_y), speed=current_speed))
+            coin_sprites_group.add(Coin(position=(x, coin_y), speed=current_speed, skin=upgrades.get('equipped_coin_skin', 'default')))
 
         dino.update()
         ground.update()
