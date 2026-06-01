@@ -7,8 +7,10 @@ import pygame
 
 import core
 from modules import *
+from rl_agent import QLearningAgent
 
 DB_PATH = os.path.join(core.BASE_DIR, 'history.db')
+Q_TABLE_PATH = os.path.join(core.BASE_DIR, 'rl_q_table.json')
 
 
 def _default_upgrades():
@@ -298,10 +300,353 @@ class HUDCache:
         game_surface.blit(score_surface, score_surface.get_rect(topright=(core.LOGICAL_SIZE[0] - margin, score_y)))
 
 
+
+class SilentSound:
+    def play(self):
+        pass
+
+
+def make_silent_sounds():
+    return {key: SilentSound() for key in ('die', 'jump', 'point', 'button')}
+
+
+def create_game_objects(upgrades):
+    dino = Dinosaur(
+        core.IMAGE_PATHS['dino'],
+        position=(40, core.GROUND_Y),
+        skin=upgrades.get('equipped_skin', 'default'),
+    )
+    if upgrades.get('jump_boost', 0):
+        dino.speed = 21
+    return {
+        'score': 0,
+        'score_timer': 0,
+        'add_obstacle_timer': 0,
+        'next_obstacle_gap': next_obstacle_interval(0),
+        'add_coin_timer': 0,
+        'next_coin_gap': random.randint(100, 180),
+        'avoided_count': 0,
+        'dino': dino,
+        'ground': Ground(core.IMAGE_PATHS['ground'], position=(0, core.GROUND_Y)),
+        'clouds': pygame.sprite.Group(),
+        'cacti': pygame.sprite.Group(),
+        'pteras': pygame.sprite.Group(),
+        'coins': pygame.sprite.Group(),
+    }
+
+
+def nearest_obstacle(dino, cactus_sprites_group, ptera_sprites_group):
+    obstacles = [
+        obstacle for obstacle in list(cactus_sprites_group) + list(ptera_sprites_group)
+        if obstacle.rect.right >= dino.rect.left
+    ]
+    if not obstacles:
+        return None
+    return min(obstacles, key=lambda obstacle: obstacle.rect.left - dino.rect.left)
+
+
+def obstacle_kind_and_height(obstacle):
+    if obstacle is None:
+        return 0, 0
+    if isinstance(obstacle, Cactus):
+        return 1, 0
+    if obstacle.rect.centery >= core.GROUND_Y - 85:
+        return 2, 1
+    return 2, 2
+
+
+def get_rl_state(dino, cactus_sprites_group, ptera_sprites_group, current_speed):
+    obstacle = nearest_obstacle(dino, cactus_sprites_group, ptera_sprites_group)
+    if obstacle is None:
+        distance_bin = 20
+    else:
+        distance = max(0, obstacle.rect.left - dino.rect.right)
+        distance_bin = max(0, min(20, int(distance / 50)))
+    obstacle_type, obstacle_height_bin = obstacle_kind_and_height(obstacle)
+    speed_bin = int(current_speed)
+    if dino.is_jumping:
+        dino_state = 1
+    elif dino.is_ducking:
+        dino_state = 2
+    else:
+        dino_state = 0
+    return (distance_bin, obstacle_type, obstacle_height_bin, speed_bin, dino_state)
+
+
+def apply_ai_action(dino, action, sounds):
+    if action == 1:
+        dino.unduck()
+        dino.jump(sounds)
+    elif action == 2:
+        dino.duck()
+    else:
+        dino.unduck()
+
+
+def count_avoided_obstacles(dino, cactus_sprites_group, ptera_sprites_group):
+    avoided = 0
+    for obstacle in list(cactus_sprites_group) + list(ptera_sprites_group):
+        if not getattr(obstacle, 'counted', False) and obstacle.rect.right < dino.rect.left and not dino.is_dead:
+            obstacle.counted = True
+            avoided += 1
+    return avoided
+
+
+def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
+    score = state['score']
+    state['score_timer'] += 1
+    if state['score_timer'] > 10:
+        state['score_timer'] = 0
+        state['score'] += 1
+        score = state['score']
+        if sounds and score % 100 == 0:
+            sounds['point'].play()
+
+    apply_speed_to_sprites(
+        current_speed,
+        state['ground'],
+        state['cacti'],
+        state['pteras'],
+        state['coins'],
+    )
+
+    if len(state['clouds']) < 5 and random.randint(0, 600) == 1:
+        state['clouds'].add(Cloud(core.IMAGE_PATHS['cloud'], position=(core.SCREENSIZE[0] + random.randint(80, 180), random.randint(50, 200))))
+
+    state['add_obstacle_timer'] += 1
+    if state['add_obstacle_timer'] > state['next_obstacle_gap']:
+        state['add_obstacle_timer'] = 0
+        state['next_obstacle_gap'] = next_obstacle_interval(score)
+        total_obstacles = len(state['cacti']) + len(state['pteras'])
+        if total_obstacles < 4:
+            x = core.SCREENSIZE[0] + random.randint(80, 180)
+            if random.randint(0, 100) < 80:
+                state['cacti'].add(Cactus(core.IMAGE_PATHS['cacti'], position=(x, core.GROUND_Y), speed=current_speed))
+            else:
+                ptera_y = random.choice([core.GROUND_Y - 70, core.GROUND_Y - 130])
+                state['pteras'].add(Ptera(core.IMAGE_PATHS['ptera'], position=(x, ptera_y), speed=current_speed))
+
+    state['add_coin_timer'] += 1
+    if len(state['coins']) < 6 and state['add_coin_timer'] > state['next_coin_gap']:
+        state['add_coin_timer'] = 0
+        state['next_coin_gap'] = random.randint(100, 190)
+        coin_y = random.choice([core.GROUND_Y - 35, core.GROUND_Y - 75, core.GROUND_Y - 110])
+        state['coins'].add(Coin(position=(core.SCREENSIZE[0] + random.randint(70, 170), coin_y), speed=current_speed))
+
+    dino = state['dino']
+    dino.update()
+    state['ground'].update()
+    state['clouds'].update()
+    state['cacti'].update()
+    state['pteras'].update()
+    state['coins'].update()
+    if upgrades.get('magnet', 0):
+        apply_coin_magnet(dino, state['coins'])
+
+    if any(pygame.sprite.collide_mask(dino, cactus) for cactus in state['cacti']) or any(pygame.sprite.collide_mask(dino, ptera) for ptera in state['pteras']):
+        dino.die(sounds)
+
+    avoided_now = count_avoided_obstacles(dino, state['cacti'], state['pteras'])
+    state['avoided_count'] += avoided_now
+
+    collected_now = 0
+    if collect_coins:
+        collected = pygame.sprite.spritecollide(dino, state['coins'], True, pygame.sprite.collide_mask)
+        collected_now = len(collected)
+        if collected_now and sounds:
+            sounds['point'].play()
+
+    return avoided_now, collected_now
+
+
+def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=False, model_loaded=True):
+    game_surface.fill(core.BACKGROUND_COLOR)
+    state['clouds'].draw(game_surface)
+    state['ground'].draw(game_surface)
+    state['cacti'].draw(game_surface)
+    state['pteras'].draw(game_surface)
+    state['coins'].draw(game_surface)
+    state['dino'].draw(game_surface)
+    hud_cache.draw(game_surface, coins, highest_score, state['score'])
+    if ai_demo:
+        font = core.get_font(25)
+        lines = ['AI演示模式', f"已躲避障碍：{min(state['avoided_count'], 999):03d}"]
+        if state['avoided_count'] >= 10:
+            lines.append('已达到 10 障碍目标')
+        elif state['avoided_count'] >= 3:
+            lines.append('已达到 3 障碍目标')
+        if not model_loaded:
+            lines.append('未训练模型，按 T 训练')
+        for idx, line in enumerate(lines):
+            surface = font.render(line, True, core.BLACK)
+            game_surface.blit(surface, (50, 160 + idx * 34))
+
 def load_sounds():
     """Load each sound once at startup instead of once per game round."""
     return {key: pygame.mixer.Sound(path) for key, path in core.AUDIO_PATHS.items()}
 
+
+def ai_end_interface(screen, game_surface, avoided_count):
+    font_title = core.get_font(52)
+    font_mid = core.get_font(30)
+    clock = pygame.time.Clock()
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return 'quit'
+            if event.type == pygame.VIDEORESIZE:
+                screen = core.resize_screen(event.size)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_a:
+                    return 'retry'
+                if event.key == pygame.K_t:
+                    return 'train'
+                if event.key == pygame.K_ESCAPE:
+                    return 'back'
+        game_surface.fill((255, 255, 255))
+        lines = [
+            (font_title, 'AI演示结束', 150),
+            (font_mid, f'躲避障碍：{avoided_count}', 250),
+            (font_mid, '按 A 再试一次', 335),
+            (font_mid, '按 T 训练AI', 385),
+            (font_mid, '按 ESC 返回', 435),
+        ]
+        for font, text, y in lines:
+            surface = font.render(text, True, core.BLACK)
+            game_surface.blit(surface, surface.get_rect(center=(core.LOGICAL_SIZE[0] // 2, y)))
+        core.blit_scaled(game_surface, screen)
+        clock.tick(core.FPS)
+
+
+def run_ai_demo(screen, highest_score, coins, upgrades, sounds):
+    game_surface = pygame.Surface(core.LOGICAL_SIZE)
+    agent = QLearningAgent(epsilon=0.0)
+    model_loaded = agent.load(Q_TABLE_PATH)
+    agent.epsilon = 0.0
+    state = create_game_objects(upgrades)
+    clock = pygame.time.Clock()
+    hud_cache = HUDCache(core.get_font(28))
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return 'quit', coins
+            if event.type == pygame.VIDEORESIZE:
+                screen = core.resize_screen(event.size)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return 'back', coins
+                if event.key == pygame.K_t and not model_loaded:
+                    return 'train', coins
+
+        current_speed = get_current_speed(state['score'], upgrades)
+        rl_state = get_rl_state(state['dino'], state['cacti'], state['pteras'], current_speed)
+        action = agent.choose_action(rl_state, training=False) if model_loaded else 0
+        apply_ai_action(state['dino'], action, sounds)
+        _, collected_now = update_world(state, upgrades, sounds, current_speed)
+        coins += collected_now
+        draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=True, model_loaded=model_loaded)
+        core.blit_scaled(game_surface, screen)
+        clock.tick(core.FPS)
+
+        if state['dino'].is_dead:
+            while True:
+                end_action = ai_end_interface(screen, game_surface, state['avoided_count'])
+                screen = pygame.display.get_surface() or screen
+                if end_action == 'retry':
+                    return 'retry', coins
+                if end_action == 'train':
+                    return 'train', coins
+                return end_action, coins
+
+
+def render_training_status(screen, game_surface, episode, episodes, best_avoided, average_score, finished=False):
+    game_surface.fill((255, 255, 255))
+    title_font = core.get_font(48)
+    font = core.get_font(28)
+    title = '训练完成' if finished else 'AI训练中'
+    lines = [
+        (title_font, title, 120),
+        (font, f'当前轮数：{episode}/{episodes}', 215),
+        (font, f'最高躲避障碍：{best_avoided}', 270),
+        (font, f'平均得分：{average_score:.1f}', 325),
+        (font, 'Q表已保存' if finished else '按 ESC 停止训练', 405),
+        (font, '按 ESC 返回开始界面' if finished else '', 455),
+    ]
+    for font_obj, text, y in lines:
+        if not text:
+            continue
+        surface = font_obj.render(text, True, core.BLACK)
+        game_surface.blit(surface, surface.get_rect(center=(core.LOGICAL_SIZE[0] // 2, y)))
+    core.blit_scaled(game_surface, screen)
+
+
+def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000):
+    game_surface = pygame.Surface(core.LOGICAL_SIZE)
+    agent = QLearningAgent(epsilon=0.35, epsilon_decay=0.988)
+    agent.load(Q_TABLE_PATH)
+    agent.epsilon = max(agent.epsilon, 0.35)
+    train_sounds = make_silent_sounds()
+    clock = pygame.time.Clock()
+    scores = []
+    best_avoided = 0
+    stopped = False
+
+    for episode in range(1, episodes + 1):
+        state = create_game_objects(upgrades)
+        episode_reward = 0.0
+        for step in range(max_steps):
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    agent.save(Q_TABLE_PATH)
+                    return {'episodes': episode, 'best_avoided': best_avoided, 'average_score': sum(scores) / len(scores) if scores else 0, 'quit': True}
+                if event.type == pygame.VIDEORESIZE:
+                    screen = core.resize_screen(event.size)
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    stopped = True
+            if stopped:
+                break
+
+            current_speed = get_current_speed(state['score'], upgrades)
+            old_state = get_rl_state(state['dino'], state['cacti'], state['pteras'], current_speed)
+            action = agent.choose_action(old_state, training=True)
+            exploration_penalty = -0.2 if action == 1 and old_state[1] == 0 else 0.0
+            apply_ai_action(state['dino'], action, train_sounds)
+            avoided_now, collected_now = update_world(state, upgrades, train_sounds, current_speed, collect_coins=True)
+            reward = 0.1 + avoided_now * 10 + collected_now * 2 + exploration_penalty
+            done = state['dino'].is_dead
+            if done:
+                reward -= 100
+            next_speed = get_current_speed(state['score'], upgrades)
+            new_state = get_rl_state(state['dino'], state['cacti'], state['pteras'], next_speed)
+            agent.update_q_value(old_state, action, reward, new_state, done=done)
+            episode_reward += reward
+            if done:
+                break
+
+        scores.append(state['score'])
+        best_avoided = max(best_avoided, state['avoided_count'])
+        agent.decay_epsilon()
+        if episode % 5 == 0 or episode == 1 or stopped:
+            render_training_status(screen, game_surface, episode, episodes, best_avoided, sum(scores) / len(scores))
+            clock.tick(30)
+        if stopped:
+            break
+
+    agent.save(Q_TABLE_PATH)
+    completed_episodes = len(scores)
+    average_score = sum(scores) / completed_episodes if completed_episodes else 0
+    render_training_status(screen, game_surface, completed_episodes, episodes, best_avoided, average_score, finished=True)
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return {'episodes': completed_episodes, 'best_avoided': best_avoided, 'average_score': average_score, 'quit': True}
+            if event.type == pygame.VIDEORESIZE:
+                screen = core.resize_screen(event.size)
+                render_training_status(screen, game_surface, completed_episodes, episodes, best_avoided, average_score, finished=True)
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                return {'episodes': completed_episodes, 'best_avoided': best_avoided, 'average_score': average_score, 'quit': False}
+        clock.tick(core.FPS)
 
 def main(screen, conn, highest_score, coins, upgrades, sounds):
     """
@@ -325,6 +670,29 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
         screen = pygame.display.get_surface() or screen
         if start_action == 'start':
             break
+        if start_action == 'ai_demo':
+            while True:
+                demo_action, coins = run_ai_demo(screen, highest_score, coins, upgrades, sounds)
+                save_player_state(conn, coins, upgrades)
+                screen = pygame.display.get_surface() or screen
+                if demo_action == 'retry':
+                    continue
+                if demo_action == 'train':
+                    result = train_ai(screen, upgrades, sounds)
+                    screen = pygame.display.get_surface() or screen
+                    if result.get('quit'):
+                        return False, highest_score, coins, upgrades
+                    continue
+                if demo_action == 'quit':
+                    return False, highest_score, coins, upgrades
+                break
+            continue
+        if start_action == 'ai_train':
+            result = train_ai(screen, upgrades, sounds)
+            screen = pygame.display.get_surface() or screen
+            if result.get('quit'):
+                return False, highest_score, coins, upgrades
+            continue
         if start_action == 'shop':
             coins, upgrades = open_shop(screen, game_surface, sounds, coins, upgrades, conn)
             screen = pygame.display.get_surface() or screen
