@@ -1,7 +1,7 @@
 import pygame
 
 
-def GameEndInterface(screen, cfg, score, highest_score, is_new_record, sounds):
+def GameEndInterface(screen, cfg, score, highest_score, is_new_record, sounds, coins=0):
     """
     游戏结束界面
 
@@ -9,7 +9,7 @@ def GameEndInterface(screen, cfg, score, highest_score, is_new_record, sounds):
         screen: Pygame屏幕对象
         cfg: 配置模块
     Returns:
-        bool: True 表示重新开始，False 表示退出游戏
+        str: 'restart' 重新开始, 'shop' 打开商城, 'quit' 退出
     """
     restart_img = pygame.image.load(cfg.IMAGE_PATHS['replay']).convert_alpha()
     restart_img = pygame.transform.scale(restart_img, (200, 200))
@@ -23,7 +23,7 @@ def GameEndInterface(screen, cfg, score, highest_score, is_new_record, sounds):
     game_over_text = font_large.render("GAME OVER", True, (83, 83, 83))
     game_over_rect = game_over_text.get_rect(center=(screen.get_width() // 2, 180))
 
-    tip_text = font_small.render("SPACE/UP: RESTART    ESC: QUIT", True, (83, 83, 83))
+    tip_text = font_small.render("SPACE/UP: RESTART    S: SHOP    ESC: QUIT", True, (83, 83, 83))
     tip_rect = tip_text.get_rect(center=(screen.get_width() // 2, 550))
 
     score_text = font_score.render(f"SCORE: {score}", True, (83, 83, 83))
@@ -31,6 +31,9 @@ def GameEndInterface(screen, cfg, score, highest_score, is_new_record, sounds):
 
     highest_text = font_score.render(f"HIGHEST: {highest_score}", True, (83, 83, 83))
     highest_rect = highest_text.get_rect(center=(screen.get_width() // 2, 300))
+
+    coin_text = font_small.render(f"COIN {str(coins).zfill(5)}", True, (83, 83, 83))
+    coin_rect = coin_text.get_rect(center=(screen.get_width() // 2, 380))
 
     new_record_text = None
     new_record_rect = None
@@ -44,18 +47,21 @@ def GameEndInterface(screen, cfg, score, highest_score, is_new_record, sounds):
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return False
+                return 'quit'
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE or event.key == pygame.K_UP:
-                    return True
+                    return 'restart'
+                if event.key == pygame.K_s:
+                    sounds['button'].play()
+                    return 'shop'
                 if event.key == pygame.K_ESCAPE:
-                    return False
+                    return 'quit'
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if restart_rect.collidepoint(event.pos):
                     sounds['button'].play()
-                    return True
+                    return 'restart'
 
         screen.fill((255, 255, 255))
         screen.blit(game_over_text, game_over_rect)
@@ -63,6 +69,7 @@ def GameEndInterface(screen, cfg, score, highest_score, is_new_record, sounds):
         screen.blit(highest_text, highest_rect)
         if is_new_record:
             screen.blit(new_record_text, new_record_rect)
+        screen.blit(coin_text, coin_rect)
         screen.blit(tip_text, tip_rect)
         screen.blit(restart_img, restart_rect)
 

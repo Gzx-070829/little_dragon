@@ -1,7 +1,7 @@
 import pygame
 from ..sprites import Dinosaur
 
-def GameStartInterface(screen, sounds, cfg):
+def GameStartInterface(screen, sounds, cfg, coins=0):
     """
     游戏开始界面
     Args:
@@ -9,7 +9,7 @@ def GameStartInterface(screen, sounds, cfg):
         sounds (dict): 音效字典
         cfg: 配置模块
     Returns:
-        bool: 是否开始游戏
+        str: 'start' 开始游戏, 'shop' 打开商城, 'quit' 退出
     """
     # 游戏标题文本
     title_font = pygame.font.Font(cfg.FONT_PATHS['joystix'], 60)
@@ -27,10 +27,16 @@ def GameStartInterface(screen, sounds, cfg):
 
     # 开始提示文本
     tip_font = pygame.font.Font(cfg.FONT_PATHS['joystix'], 24)
-    tip_text = tip_font.render("PRESS SPACE TO START", True, (83, 83, 83))
+    tip_text = tip_font.render("SPACE/UP: START    S: SHOP    ESC: QUIT", True, (83, 83, 83))
     tip_rect = tip_text.get_rect()
     tip_rect.centerx = screen.get_rect().centerx
-    tip_rect.top = 380
+    tip_rect.top = 360
+
+    coin_font = pygame.font.Font(cfg.FONT_PATHS['joystix'], 22)
+    coin_text = coin_font.render(f"COIN {str(coins).zfill(5)}", True, (83, 83, 83))
+    coin_rect = coin_text.get_rect()
+    coin_rect.centerx = screen.get_rect().centerx
+    coin_rect.top = 410
 
     # 创建恐龙对象用于展示
     dino = Dinosaur(cfg.IMAGE_PATHS['dino'])
@@ -51,11 +57,16 @@ def GameStartInterface(screen, sounds, cfg):
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return False
+                return 'quit'
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE or event.key == pygame.K_UP:
-                    return True
+                    return 'start'
+                if event.key == pygame.K_s:
+                    sounds['button'].play()
+                    return 'shop'
+                if event.key == pygame.K_ESCAPE:
+                    return 'quit'
 
         # 更新恐龙动画
         dino.update()
@@ -66,6 +77,7 @@ def GameStartInterface(screen, sounds, cfg):
         screen.blit(title_text, title_rect)
         screen.blit(designer_text, designer_rect)
         screen.blit(tip_text, tip_rect)
+        screen.blit(coin_text, coin_rect)
         dino.draw(screen)
 
         pygame.display.update()
