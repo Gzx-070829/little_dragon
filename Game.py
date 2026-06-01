@@ -120,9 +120,9 @@ def save_score(conn, score):
         print(f"保存分数失败: {e}")
 
 
-def open_shop(screen, sounds, coins, upgrades, conn):
+def open_shop(screen, game_surface, sounds, coins, upgrades, conn):
     """打开商城并立即保存购买结果。"""
-    coins, upgrades = ShopInterface(screen, core, coins, upgrades, sounds)
+    coins, upgrades = ShopInterface(screen, game_surface, core, coins, upgrades, sounds)
     save_player_state(conn, coins, upgrades)
     return coins, upgrades
 
@@ -161,23 +161,15 @@ def next_obstacle_interval(score):
 
 
 def create_screen():
-    """Create the pygame display and refresh screen-dependent config."""
-    if core.FULLSCREEN:
-        info = pygame.display.Info()
-        size = (info.current_w, info.current_h)
-        screen = pygame.display.set_mode(size, pygame.FULLSCREEN)
-    else:
-        screen = pygame.display.set_mode(core.DEFAULT_SCREENSIZE)
-
-    core.set_screen_size(screen.get_size())
-    return screen
+    """Create the default resizable window without changing logical layout."""
+    return pygame.display.set_mode(core.WINDOW_SIZE, pygame.RESIZABLE)
 
 
-def draw_hud(screen, font, coins, highest_score, score):
-    """Draw stable HUD text using rect alignment instead of fixed x positions."""
+def draw_hud(game_surface, font, coins, highest_score, score):
+    """Draw stable HUD text inside the fixed logical canvas."""
     margin = 50
-    hud_y = 90
-    line_gap = 38
+    hud_y = 80
+    score_y = 120
 
     safe_coins = max(0, min(int(coins), 99999))
     safe_highest = max(0, min(int(highest_score), 99999))
@@ -187,16 +179,16 @@ def draw_hud(screen, font, coins, highest_score, score):
     coin_rect = coin_surface.get_rect(topleft=(margin, hud_y))
 
     hi_surface = font.render(f"HI {safe_highest:05d}", True, core.BLACK)
-    hi_rect = hi_surface.get_rect(topright=(core.SCREENSIZE[0] - margin, hud_y))
+    hi_rect = hi_surface.get_rect(topright=(core.LOGICAL_SIZE[0] - margin, hud_y))
 
     score_surface = font.render(f"SCORE {safe_score:05d}", True, core.BLACK)
     score_rect = score_surface.get_rect(
-        topright=(core.SCREENSIZE[0] - margin, hud_y + line_gap)
+        topright=(core.LOGICAL_SIZE[0] - margin, score_y)
     )
 
-    screen.blit(coin_surface, coin_rect)
-    screen.blit(hi_surface, hi_rect)
-    screen.blit(score_surface, score_rect)
+    game_surface.blit(coin_surface, coin_rect)
+    game_surface.blit(hi_surface, hi_rect)
+    game_surface.blit(score_surface, score_rect)
 
 
 def main(conn, highest_score, coins, upgrades):
@@ -214,6 +206,7 @@ def main(conn, highest_score, coins, upgrades):
     """
     pygame.init()
     screen = create_screen()
+    game_surface = pygame.Surface(core.LOGICAL_SIZE)
     pygame.display.set_caption('Dino Rush')
 
     sounds = {}
@@ -221,11 +214,13 @@ def main(conn, highest_score, coins, upgrades):
         sounds[key] = pygame.mixer.Sound(path)
 
     while True:
-        start_action = GameStartInterface(screen, sounds, core, coins)
+        start_action = GameStartInterface(screen, game_surface, sounds, core, coins)
+        screen = pygame.display.get_surface() or screen
         if start_action == 'start':
             break
         if start_action == 'shop':
-            coins, upgrades = open_shop(screen, sounds, coins, upgrades, conn)
+            coins, upgrades = open_shop(screen, game_surface, sounds, coins, upgrades, conn)
+            screen = pygame.display.get_surface() or screen
             continue
         return False, highest_score, coins, upgrades
 
@@ -263,6 +258,9 @@ def main(conn, highest_score, coins, upgrades):
                 save_player_state(conn, coins, upgrades)
                 return False, highest_score, coins, upgrades
 
+            if event.type == pygame.VIDEORESIZE:
+                screen = core.resize_screen(event.size)
+
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     save_player_state(conn, coins, upgrades)
@@ -292,7 +290,7 @@ def main(conn, highest_score, coins, upgrades):
             coin_sprites_group,
         )
 
-        screen.fill(core.BACKGROUND_COLOR)
+        game_surface.fill(core.BACKGROUND_COLOR)
 
         if len(cloud_sprites_group) < 5 and random.randint(0, 600) == 1:
             x = core.SCREENSIZE[0] + random.randint(80, 180)
@@ -360,16 +358,16 @@ def main(conn, highest_score, coins, upgrades):
             coins += len(collected_coins)
             sounds['point'].play()
 
-        cloud_sprites_group.draw(screen)
-        ground.draw(screen)
-        cactus_sprites_group.draw(screen)
-        ptera_sprites_group.draw(screen)
-        coin_sprites_group.draw(screen)
-        dino.draw(screen)
+        cloud_sprites_group.draw(game_surface)
+        ground.draw(game_surface)
+        cactus_sprites_group.draw(game_surface)
+        ptera_sprites_group.draw(game_surface)
+        coin_sprites_group.draw(game_surface)
+        dino.draw(game_surface)
 
-        draw_hud(screen, hud_font, coins, highest_score, score)
+        draw_hud(game_surface, hud_font, coins, highest_score, score)
 
-        pygame.display.update()
+        core.blit_scaled(game_surface, screen)
         clock.tick(core.FPS)
 
         if dino.is_dead:
@@ -384,6 +382,7 @@ def main(conn, highest_score, coins, upgrades):
     while True:
         end_action = GameEndInterface(
             screen,
+            game_surface,
             core,
             score,
             highest_score,
@@ -391,10 +390,12 @@ def main(conn, highest_score, coins, upgrades):
             sounds,
             coins,
         )
+        screen = pygame.display.get_surface() or screen
         if end_action == 'restart':
             return True, highest_score, coins, upgrades
         if end_action == 'shop':
-            coins, upgrades = open_shop(screen, sounds, coins, upgrades, conn)
+            coins, upgrades = open_shop(screen, game_surface, sounds, coins, upgrades, conn)
+            screen = pygame.display.get_surface() or screen
             continue
         return False, highest_score, coins, upgrades
 
