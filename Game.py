@@ -222,7 +222,7 @@ def next_obstacle_interval(score):
 
 
 def apply_coin_magnet(dino, coin_sprites_group):
-    """Pull nearby coins toward the dinosaur when the Magnet upgrade is owned."""
+    """拥有金币磁铁升级后，把附近金币拉向恐龙。"""
     magnet_radius = 175
     pull_strength = 0.18
     for coin in coin_sprites_group:
@@ -235,12 +235,12 @@ def apply_coin_magnet(dino, coin_sprites_group):
 
 
 def create_screen():
-    """Create the default resizable window without changing logical layout."""
+    """创建默认可缩放窗口，游戏内部仍使用固定逻辑分辨率。"""
     return pygame.display.set_mode(core.WINDOW_SIZE, pygame.RESIZABLE)
 
 
 def draw_hud(game_surface, font, coins, highest_score, score):
-    """Draw stable HUD text inside the fixed logical canvas."""
+    """在固定逻辑画布内绘制稳定的中文 HUD。"""
     margin = 50
     hud_y = 80
     score_y = 120
@@ -249,13 +249,13 @@ def draw_hud(game_surface, font, coins, highest_score, score):
     safe_highest = max(0, min(int(highest_score), 99999))
     safe_score = max(0, min(int(score), 99999))
 
-    coin_surface = font.render(f"COIN {safe_coins:05d}", True, core.BLACK)
+    coin_surface = font.render(f"金币 {safe_coins:05d}", True, core.BLACK)
     coin_rect = coin_surface.get_rect(topleft=(margin, hud_y))
 
-    hi_surface = font.render(f"HI {safe_highest:05d}", True, core.BLACK)
+    hi_surface = font.render(f"最高 {safe_highest:05d}", True, core.BLACK)
     hi_rect = hi_surface.get_rect(topright=(core.LOGICAL_SIZE[0] - margin, hud_y))
 
-    score_surface = font.render(f"SCORE {safe_score:05d}", True, core.BLACK)
+    score_surface = font.render(f"分数 {safe_score:05d}", True, core.BLACK)
     score_rect = score_surface.get_rect(
         topright=(core.LOGICAL_SIZE[0] - margin, score_y)
     )
@@ -265,11 +265,12 @@ def draw_hud(game_surface, font, coins, highest_score, score):
     game_surface.blit(score_surface, score_rect)
 
 
-def main(conn, highest_score, coins, upgrades):
+def main(screen, conn, highest_score, coins, upgrades):
     """
     游戏主函数
 
     Args:
+        screen: 程序启动时创建的 Pygame 真实窗口对象
         conn: SQLite 数据库连接
         highest_score (int): 历史最高分
         coins (int): 玩家持有金币
@@ -278,10 +279,8 @@ def main(conn, highest_score, coins, upgrades):
     Returns:
         tuple: (是否继续游戏, 当前最高分, 当前金币, 当前升级)
     """
-    pygame.init()
-    screen = create_screen()
     game_surface = pygame.Surface(core.LOGICAL_SIZE)
-    pygame.display.set_caption('Dino Rush')
+    pygame.display.set_caption('像素恐龙快跑')
 
     sounds = {}
     for key, path in core.AUDIO_PATHS.items():
@@ -320,7 +319,7 @@ def main(conn, highest_score, coins, upgrades):
     next_coin_gap = random.randint(100, 180)
     score_timer = 0
     clock = pygame.time.Clock()
-    hud_font = pygame.font.Font(core.FONT_PATHS['joystix'], 24)
+    hud_font = core.get_font(28)
     current_speed = get_current_speed(score, upgrades)
     apply_speed_to_sprites(
         current_speed,
@@ -481,10 +480,13 @@ def main(conn, highest_score, coins, upgrades):
 
 
 if __name__ == '__main__':
+    pygame.init()
+    screen = create_screen()
     conn, highest_score, coins, upgrades = init_database()
     try:
         while True:
-            flag, highest_score, coins, upgrades = main(conn, highest_score, coins, upgrades)
+            flag, highest_score, coins, upgrades = main(screen, conn, highest_score, coins, upgrades)
+            screen = pygame.display.get_surface() or screen
             if not flag:
                 save_player_state(conn, coins, upgrades)
                 break

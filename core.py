@@ -18,6 +18,29 @@ SLOW_START_GAME_SPEED = 8
 MAX_GAME_SPEED = 24
 
 
+CHINESE_FONT_NAMES = (
+    'Noto Sans CJK SC',
+    'Noto Sans CJK',
+    'WenQuanYi Micro Hei',
+    'Microsoft YaHei',
+    'SimHei',
+    'Source Han Sans SC',
+    'Arial Unicode MS',
+)
+
+
+def get_font(size):
+    """Return a font that can render Chinese text when the system provides one."""
+    for font_name in CHINESE_FONT_NAMES:
+        try:
+            matched_font = pygame.font.match_font(font_name)
+            if matched_font:
+                return pygame.font.Font(matched_font, size)
+        except Exception:
+            continue
+    return pygame.font.Font(None, size)
+
+
 def set_screen_size(size):
     """Keep compatibility with older callers without changing logical layout."""
     return LOGICAL_SIZE
