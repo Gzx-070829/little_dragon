@@ -459,7 +459,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
     return avoided_now, collected_now
 
 
-def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=False, model_loaded=True):
+def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=False, model_loaded=True, agent=None):
     game_surface.fill(core.BACKGROUND_COLOR)
     state['clouds'].draw(game_surface)
     state['ground'].draw(game_surface)
@@ -470,13 +470,14 @@ def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=Fal
     hud_cache.draw(game_surface, coins, highest_score, state['score'])
     if ai_demo:
         font = core.get_font(25)
-        lines = ['AI演示模式', f"已躲避障碍：{min(state['avoided_count'], 999):03d}"]
-        if state['avoided_count'] >= 10:
-            lines.append('已达到 10 障碍目标')
-        elif state['avoided_count'] >= 3:
-            lines.append('已达到 3 障碍目标')
-        if not model_loaded:
-            lines.append('未训练模型，按 T 训练')
+        lines = ['AI演示模式', f"本局躲避：{min(state['avoided_count'], 999):03d}"]
+        if model_loaded and agent is not None:
+            lines.extend([
+                f"累计训练：{agent.training_episodes}轮",
+                f"历史最高躲避：{agent.best_avoided}",
+            ])
+        else:
+            lines.append('尚未训练AI，请先按 T 训练')
         for idx, line in enumerate(lines):
             surface = font.render(line, True, core.BLACK)
             game_surface.blit(surface, (50, 160 + idx * 34))
@@ -508,7 +509,7 @@ def ai_end_interface(screen, game_surface, avoided_count):
             (font_title, 'AI演示结束', 150),
             (font_mid, f'躲避障碍：{avoided_count}', 250),
             (font_mid, '按 A 再试一次', 335),
-            (font_mid, '按 T 训练AI', 385),
+            (font_mid, '按 T 继续训练AI', 385),
             (font_mid, '按 ESC 返回', 435),
         ]
         for font, text, y in lines:
@@ -545,7 +546,7 @@ def run_ai_demo(screen, highest_score, coins, upgrades, sounds):
         apply_ai_action(state['dino'], action, sounds)
         _, collected_now = update_world(state, upgrades, sounds, current_speed)
         coins += collected_now
-        draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=True, model_loaded=model_loaded)
+        draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=True, model_loaded=model_loaded, agent=agent)
         core.blit_scaled(game_surface, screen)
         clock.tick(core.FPS)
 
@@ -560,46 +561,100 @@ def run_ai_demo(screen, highest_score, coins, upgrades, sounds):
                 return end_action, coins
 
 
-def render_training_status(screen, game_surface, episode, episodes, best_avoided, average_score, finished=False):
+def render_training_status(
+    screen,
+    game_surface,
+    episode,
+    episodes,
+    cumulative_episodes,
+    historical_best_avoided,
+    session_best_avoided,
+    average_score,
+    epsilon,
+    finished=False,
+    session_best_score=0,
+):
     game_surface.fill((255, 255, 255))
     title_font = core.get_font(48)
-    font = core.get_font(28)
+    font = core.get_font(26)
     title = '训练完成' if finished else 'AI训练中'
-    lines = [
-        (title_font, title, 120),
-        (font, f'当前轮数：{episode}/{episodes}', 215),
-        (font, f'最高躲避障碍：{best_avoided}', 270),
-        (font, f'平均得分：{average_score:.1f}', 325),
-        (font, 'Q表已保存' if finished else '按 ESC 停止训练', 405),
-        (font, '按 ESC 返回开始界面' if finished else '', 455),
-    ]
+    if finished:
+        lines = [
+            (title_font, title, 105),
+            (font, f'本次训练轮数：{episode}', 185),
+            (font, f'累计训练轮数：{cumulative_episodes}', 230),
+            (font, f'本次最高躲避：{session_best_avoided}', 275),
+            (font, f'历史最高躲避：{historical_best_avoided}', 320),
+            (font, f'本次最高分：{session_best_score}', 365),
+            (font, 'Q表已保存', 420),
+            (font, '按 A 演示AI    按 T 继续训练', 470),
+            (font, '按 ESC 返回', 515),
+        ]
+    else:
+        lines = [
+            (title_font, title, 110),
+            (font, f'本次训练：第 {episode} / {episodes} 轮', 205),
+            (font, f'累计训练：{cumulative_episodes} 轮', 255),
+            (font, f'历史最高躲避：{historical_best_avoided}', 305),
+            (font, f'本次最高躲避：{session_best_avoided}', 355),
+            (font, f'当前探索率：{epsilon:.3f}', 405),
+            (font, f'平均得分：{average_score:.1f}', 455),
+            (font, '按 ESC 停止训练并保存', 510),
+        ]
     for font_obj, text, y in lines:
-        if not text:
-            continue
         surface = font_obj.render(text, True, core.BLACK)
         game_surface.blit(surface, surface.get_rect(center=(core.LOGICAL_SIZE[0] // 2, y)))
     core.blit_scaled(game_surface, screen)
 
 
-def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000):
+def reset_ai_training():
+    """只重置强化学习 Q 表，不触碰金币、商城、皮肤或 history.db。"""
+    if os.path.exists(Q_TABLE_PATH):
+        os.remove(Q_TABLE_PATH)
+    print('已重置AI训练数据，仅删除 rl_q_table.json')
+
+
+def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000, reset_training=False):
     game_surface = pygame.Surface(core.LOGICAL_SIZE)
-    agent = QLearningAgent(epsilon=0.35, epsilon_decay=0.988)
-    agent.load(Q_TABLE_PATH)
-    agent.epsilon = max(agent.epsilon, 0.35)
+    if reset_training:
+        reset_ai_training()
+    agent = QLearningAgent(epsilon=0.35, epsilon_decay=0.988, min_epsilon=0.05)
+    loaded_history = agent.load(Q_TABLE_PATH)
     train_sounds = make_silent_sounds()
     clock = pygame.time.Clock()
     scores = []
-    best_avoided = 0
+    session_best_avoided = 0
+    session_best_score = 0
     stopped = False
 
+    if loaded_history:
+        render_training_status(
+            screen,
+            game_surface,
+            0,
+            episodes,
+            agent.training_episodes,
+            agent.best_avoided,
+            session_best_avoided,
+            0,
+            agent.epsilon,
+        )
+        pygame.time.wait(250)
+
+    completed_episodes = 0
     for episode in range(1, episodes + 1):
         state = create_game_objects(upgrades)
-        episode_reward = 0.0
         for step in range(max_steps):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    agent.save(Q_TABLE_PATH)
-                    return {'episodes': episode, 'best_avoided': best_avoided, 'average_score': sum(scores) / len(scores) if scores else 0, 'quit': True}
+                    session_metadata = {
+                        'session_episodes': completed_episodes,
+                        'session_best_avoided': session_best_avoided,
+                        'session_best_score': session_best_score,
+                        'session_average_score': sum(scores) / len(scores) if scores else 0,
+                    }
+                    agent.save(Q_TABLE_PATH, session_metadata)
+                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': session_metadata['session_average_score'], 'quit': True}
                 if event.type == pygame.VIDEORESIZE:
                     screen = core.resize_screen(event.size)
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -620,32 +675,83 @@ def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000):
             next_speed = get_current_speed(state['score'], upgrades)
             new_state = get_rl_state(state['dino'], state['cacti'], state['pteras'], next_speed)
             agent.update_q_value(old_state, action, reward, new_state, done=done)
-            episode_reward += reward
+            if avoided_now and state['avoided_count'] > agent.best_avoided:
+                agent.best_avoided = state['avoided_count']
             if done:
                 break
 
-        scores.append(state['score'])
-        best_avoided = max(best_avoided, state['avoided_count'])
-        agent.decay_epsilon()
-        if episode % 5 == 0 or episode == 1 or stopped:
-            render_training_status(screen, game_surface, episode, episodes, best_avoided, sum(scores) / len(scores))
-            clock.tick(30)
         if stopped:
             break
 
-    agent.save(Q_TABLE_PATH)
-    completed_episodes = len(scores)
+        completed_episodes += 1
+        scores.append(state['score'])
+        session_best_avoided = max(session_best_avoided, state['avoided_count'])
+        session_best_score = max(session_best_score, state['score'])
+        agent.best_avoided = max(agent.best_avoided, state['avoided_count'])
+        agent.best_score = max(agent.best_score, state['score'])
+        agent.training_episodes += 1
+        agent.decay_epsilon()
+        if episode % 5 == 0 or episode == 1:
+            render_training_status(
+                screen,
+                game_surface,
+                episode,
+                episodes,
+                agent.training_episodes,
+                agent.best_avoided,
+                session_best_avoided,
+                sum(scores) / len(scores),
+                agent.epsilon,
+            )
+            clock.tick(30)
+
     average_score = sum(scores) / completed_episodes if completed_episodes else 0
-    render_training_status(screen, game_surface, completed_episodes, episodes, best_avoided, average_score, finished=True)
+    session_metadata = {
+        'session_episodes': completed_episodes,
+        'session_best_avoided': session_best_avoided,
+        'session_best_score': session_best_score,
+        'session_average_score': average_score,
+    }
+    agent.save(Q_TABLE_PATH, session_metadata)
+    render_training_status(
+        screen,
+        game_surface,
+        completed_episodes,
+        episodes,
+        agent.training_episodes,
+        agent.best_avoided,
+        session_best_avoided,
+        average_score,
+        agent.epsilon,
+        finished=True,
+        session_best_score=session_best_score,
+    )
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return {'episodes': completed_episodes, 'best_avoided': best_avoided, 'average_score': average_score, 'quit': True}
+                return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'quit': True}
             if event.type == pygame.VIDEORESIZE:
                 screen = core.resize_screen(event.size)
-                render_training_status(screen, game_surface, completed_episodes, episodes, best_avoided, average_score, finished=True)
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                return {'episodes': completed_episodes, 'best_avoided': best_avoided, 'average_score': average_score, 'quit': False}
+                render_training_status(
+                    screen,
+                    game_surface,
+                    completed_episodes,
+                    episodes,
+                    agent.training_episodes,
+                    agent.best_avoided,
+                    session_best_avoided,
+                    average_score,
+                    agent.epsilon,
+                    finished=True,
+                    session_best_score=session_best_score,
+                )
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_a:
+                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'quit': False, 'action': 'ai_demo'}
+                if event.key == pygame.K_t:
+                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'quit': False, 'action': 'train'}
+                if event.key == pygame.K_ESCAPE:
+                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'quit': False, 'action': 'back'}
         clock.tick(core.FPS)
 
 def main(screen, conn, highest_score, coins, upgrades, sounds):
@@ -678,20 +784,41 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
                 if demo_action == 'retry':
                     continue
                 if demo_action == 'train':
-                    result = train_ai(screen, upgrades, sounds)
-                    screen = pygame.display.get_surface() or screen
-                    if result.get('quit'):
-                        return False, highest_score, coins, upgrades
-                    continue
+                    while True:
+                        result = train_ai(screen, upgrades, sounds)
+                        screen = pygame.display.get_surface() or screen
+                        if result.get('quit'):
+                            return False, highest_score, coins, upgrades
+                        if result.get('action') == 'train':
+                            continue
+                        break
+                    if result.get('action') == 'ai_demo':
+                        continue
+                    break
                 if demo_action == 'quit':
                     return False, highest_score, coins, upgrades
                 break
             continue
         if start_action == 'ai_train':
-            result = train_ai(screen, upgrades, sounds)
-            screen = pygame.display.get_surface() or screen
-            if result.get('quit'):
-                return False, highest_score, coins, upgrades
+            while True:
+                result = train_ai(screen, upgrades, sounds)
+                screen = pygame.display.get_surface() or screen
+                if result.get('quit'):
+                    return False, highest_score, coins, upgrades
+                if result.get('action') == 'train':
+                    continue
+                if result.get('action') == 'ai_demo':
+                    demo_action, coins = run_ai_demo(screen, highest_score, coins, upgrades, sounds)
+                    save_player_state(conn, coins, upgrades)
+                    screen = pygame.display.get_surface() or screen
+                    if demo_action == 'train':
+                        continue
+                    if demo_action == 'quit':
+                        return False, highest_score, coins, upgrades
+                break
+            continue
+        if start_action == 'ai_reset':
+            reset_ai_training()
             continue
         if start_action == 'shop':
             coins, upgrades = open_shop(screen, game_surface, sounds, coins, upgrades, conn)
