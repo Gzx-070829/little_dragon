@@ -294,6 +294,17 @@ def ShopInterface(screen, game_surface, cfg, coins, upgrades, sounds=None, save_
                         if sounds:
                             sounds['button'].play()
                     upgrades['equipped_skin'] = skin['key']
+                    print(f"[DEBUG] 装备角色皮肤: {upgrades.get('equipped_skin')}")
+                    if skin['key'] == 'runner':
+                        try:
+                            from ..sprites.dinosaur import Dinosaur
+                            if not Dinosaur.can_load_runner_skin():
+                                message = '奔跑人物加载失败，已使用默认皮肤'
+                                message_color = (210, 60, 60)
+                        except Exception as e:
+                            print(f"奔跑人物皮肤测试加载失败: {e}")
+                            message = '奔跑人物加载失败，已使用默认皮肤'
+                            message_color = (210, 60, 60)
                     _save_if_needed(save_callback, coins, upgrades)
                     dirty = True
 
