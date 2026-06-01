@@ -163,7 +163,7 @@ def save_score(conn, score):
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO record (unix_timestamp, score) VALUES (?, ?)",
-            (int(time.time()), score)
+            (int(time.time() * 1000), score)
         )
         conn.commit()
     except Exception as e:
@@ -195,7 +195,7 @@ def get_current_speed(score, upgrades):
         if upgrades.get('slow_start', 0)
         else core.BASE_GAME_SPEED
     )
-    return min(core.MAX_GAME_SPEED, base_speed + score // 500)
+    return min(core.MAX_GAME_SPEED, base_speed + score // 150)
 
 
 def apply_speed_to_sprites(
@@ -405,7 +405,7 @@ def main(conn, highest_score, coins, upgrades):
             x = core.SCREENSIZE[0] + random.randint(70, 170)
             coin_y = random.choice([
                 core.GROUND_Y - 35,
-                core.GROUND_Y - 35,
+                core.GROUND_Y - 75,
                 core.GROUND_Y - 110,
             ])
             coin_sprites_group.add(Coin(position=(x, coin_y), speed=current_speed))

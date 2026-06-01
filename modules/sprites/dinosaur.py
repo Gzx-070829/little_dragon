@@ -98,8 +98,12 @@ class Dinosaur(pygame.sprite.Sprite):
             self.movement[1] = -self.speed
 
     def duck(self):
-        """让恐龙下蹲。"""
-        if not self.is_jumping and not self.is_dead:
+        """让恐龙下蹲，空中按下时快速下坠。"""
+        if self.is_dead:
+            return
+        if self.is_jumping:
+            self.movement[1] = max(self.movement[1], self.speed)
+        else:
             self.is_ducking = True
 
     def unduck(self):
