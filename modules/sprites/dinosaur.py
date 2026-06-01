@@ -17,7 +17,7 @@ def scale_to_height(surface, height):
     if current_height == 0:
         return surface.copy()
     target_width = max(1, int(width * height / current_height))
-    return pygame.transform.smoothscale(surface, (target_width, height))
+    return pygame.transform.scale(surface, (target_width, height))
 
 
 def apply_skin(surface, skin):
@@ -46,6 +46,32 @@ def apply_skin(surface, skin):
 class Dinosaur(pygame.sprite.Sprite):
     """恐龙玩家角色。"""
 
+    _IMAGE_CACHE = {}
+
+    @classmethod
+    def _get_images(cls, imagepaths, heights, skin):
+        cache_key = (tuple(imagepaths), tuple(heights), skin)
+        cached = cls._IMAGE_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        images = []
+        image = pygame.image.load(imagepaths[0]).convert_alpha()
+        for i in range(5):
+            frame = image.subsurface((i * 270, 0), (270, 410))
+            frame = trim_surface(frame)
+            frame = scale_to_height(frame, heights[0])
+            images.append(apply_skin(frame, skin))
+
+        image = pygame.image.load(imagepaths[1]).convert_alpha()
+        duck_frame = image.subsurface((0, 0), (2015, 1338))
+        duck_frame = trim_surface(duck_frame)
+        duck_frame = scale_to_height(duck_frame, heights[1])
+        images.append(apply_skin(duck_frame, skin))
+
+        cls._IMAGE_CACHE[cache_key] = images
+        return images
+
     def __init__(self, imagepaths, position=None, heights=(110, 78), skin='default', **kwargs):
         """
         初始化恐龙角色
@@ -60,19 +86,7 @@ class Dinosaur(pygame.sprite.Sprite):
             position = (40, core.GROUND_Y)
 
         self.skin = skin
-        self.images = []
-        image = pygame.image.load(imagepaths[0]).convert_alpha()
-        for i in range(5):
-            frame = image.subsurface((i * 270, 0), (270, 410))
-            frame = trim_surface(frame)
-            frame = scale_to_height(frame, heights[0])
-            self.images.append(apply_skin(frame, self.skin))
-
-        image = pygame.image.load(imagepaths[1]).convert_alpha()
-        duck_frame = image.subsurface((0, 0), (2015, 1338))
-        duck_frame = trim_surface(duck_frame)
-        duck_frame = scale_to_height(duck_frame, heights[1])
-        self.images.append(apply_skin(duck_frame, self.skin))
+        self.images = self._get_images(imagepaths, heights, self.skin)
 
         self.image_idx = 0
         self.image = self.images[self.image_idx]

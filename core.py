@@ -8,6 +8,7 @@ LOGICAL_SIZE = (1200, 600)
 WINDOW_SIZE = LOGICAL_SIZE
 SCREENSIZE = LOGICAL_SIZE  # 游戏内部始终使用固定逻辑分辨率。
 FPS = 60  # 每秒帧数
+USE_SMOOTH_SCALE = False  # 默认优先流畅度；需要更平滑缩放时可改为 True。
 # 统一的地面表面基准线：角色脚底、仙人掌底部、金币和翼龙高度都围绕这里对齐。
 GROUND_Y = int(LOGICAL_SIZE[1] * 0.86)
 # 仙人掌在裁掉透明边距后轻微下沉，确保视觉底部彻底贴住地面表面。
@@ -29,16 +30,29 @@ CHINESE_FONT_NAMES = (
 )
 
 
+_FONT_CACHE = {}
+_SCALE_CACHE = {}
+
+
 def get_font(size):
-    """Return a font that can render Chinese text when the system provides one."""
+    """Return and cache a font that can render Chinese text when available."""
+    size = int(size)
+    cached_font = _FONT_CACHE.get(size)
+    if cached_font is not None:
+        return cached_font
+
     for font_name in CHINESE_FONT_NAMES:
         try:
             matched_font = pygame.font.match_font(font_name)
             if matched_font:
-                return pygame.font.Font(matched_font, size)
+                font = pygame.font.Font(matched_font, size)
+                _FONT_CACHE[size] = font
+                return font
         except Exception:
             continue
-    return pygame.font.Font(None, size)
+    font = pygame.font.Font(None, size)
+    _FONT_CACHE[size] = font
+    return font
 
 
 def set_screen_size(size):
@@ -55,22 +69,37 @@ def resize_screen(size):
     )
 
 
-def blit_scaled(game_surface, screen):
-    """Scale the fixed logical game surface into the real window with letterboxing."""
-    window_w, window_h = screen.get_size()
-    logical_w, logical_h = game_surface.get_size()
+def _scaled_layout(window_size, logical_size):
+    """Return cached size and letterbox offset for fixed logical scaling."""
+    cache_key = (window_size, logical_size)
+    cached = _SCALE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
 
+    window_w, window_h = window_size
+    logical_w, logical_h = logical_size
     scale = min(window_w / logical_w, window_h / logical_h)
     scaled_w = max(1, int(logical_w * scale))
     scaled_h = max(1, int(logical_h * scale))
-
-    scaled_surface = pygame.transform.smoothscale(game_surface, (scaled_w, scaled_h))
-
     offset_x = (window_w - scaled_w) // 2
     offset_y = (window_h - scaled_h) // 2
+    layout = ((scaled_w, scaled_h), (offset_x, offset_y), scale)
+    if len(_SCALE_CACHE) > 32:
+        _SCALE_CACHE.clear()
+    _SCALE_CACHE[cache_key] = layout
+    return layout
+
+
+def blit_scaled(game_surface, screen):
+    """Scale the fixed logical game surface into the real window with letterboxing."""
+    scaled_size, offset, _ = _scaled_layout(screen.get_size(), game_surface.get_size())
+    if USE_SMOOTH_SCALE:
+        scaled_surface = pygame.transform.smoothscale(game_surface, scaled_size)
+    else:
+        scaled_surface = pygame.transform.scale(game_surface, scaled_size)
 
     screen.fill((0, 0, 0))
-    screen.blit(scaled_surface, (offset_x, offset_y))
+    screen.blit(scaled_surface, offset)
     pygame.display.flip()
 
 
@@ -79,12 +108,10 @@ def screen_to_game_pos(pos, screen, game_surface):
     window_w, window_h = screen.get_size()
     logical_w, logical_h = game_surface.get_size()
 
-    scale = min(window_w / logical_w, window_h / logical_h)
-    scaled_w = int(logical_w * scale)
-    scaled_h = int(logical_h * scale)
-
-    offset_x = (window_w - scaled_w) // 2
-    offset_y = (window_h - scaled_h) // 2
+    (scaled_w, scaled_h), (offset_x, offset_y), scale = _scaled_layout(
+        (window_w, window_h),
+        (logical_w, logical_h),
+    )
 
     x, y = pos
     if (
