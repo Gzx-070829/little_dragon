@@ -23,7 +23,7 @@ def scale_to_height(surface, height):
 class Dinosaur(pygame.sprite.Sprite):
     """恐龙玩家角色。"""
 
-    def __init__(self, imagepaths, position=(40, core.GROUND_Y), heights=(110, 78), **kwargs):
+    def __init__(self, imagepaths, position=None, heights=(110, 78), **kwargs):
         """
         初始化恐龙角色
         Args:
@@ -32,6 +32,8 @@ class Dinosaur(pygame.sprite.Sprite):
             heights (tuple): 恐龙图片的目标高度 [正常高度, 下蹲高度]
         """
         super().__init__()
+        if position is None:
+            position = (40, core.GROUND_Y)
 
         self.images = []
         image = pygame.image.load(imagepaths[0]).convert_alpha()
