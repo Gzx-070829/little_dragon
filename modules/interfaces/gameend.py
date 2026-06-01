@@ -2,6 +2,7 @@ import pygame
 
 
 TEXT_COLOR = (83, 83, 83)
+_REPLAY_CACHE = {}
 
 
 def _render_centered(surface, font, text, y, color=TEXT_COLOR):
@@ -10,21 +11,23 @@ def _render_centered(surface, font, text, y, color=TEXT_COLOR):
     surface.blit(text_surface, rect)
 
 
+def _get_replay_image(cfg):
+    cached = _REPLAY_CACHE.get(cfg.IMAGE_PATHS['replay'])
+    if cached is not None:
+        return cached
+    image = pygame.image.load(cfg.IMAGE_PATHS['replay']).convert_alpha()
+    image = pygame.transform.scale(image, (200, 200))
+    _REPLAY_CACHE[cfg.IMAGE_PATHS['replay']] = image
+    return image
+
+
 def GameEndInterface(screen, game_surface, cfg, score, highest_score, is_new_record, sounds, coins=0):
     """
-    游戏结束界面
-
-    Args:
-        screen: Pygame真实窗口对象
-        game_surface: 固定逻辑分辨率画布
-        cfg: 配置模块
-    Returns:
-        str: 'restart' 重新开始, 'shop' 打开商城, 'quit' 退出
+    游戏结束界面。进入界面时预渲染静态内容，循环中只处理事件和缩放显示。
     """
     logical_w, logical_h = cfg.LOGICAL_SIZE
 
-    restart_img = pygame.image.load(cfg.IMAGE_PATHS['replay']).convert_alpha()
-    restart_img = pygame.transform.scale(restart_img, (200, 200))
+    restart_img = _get_replay_image(cfg)
     restart_rect = restart_img.get_rect(center=(logical_w // 2, int(logical_h * 0.70)))
 
     font_large = cfg.get_font(56)
@@ -32,10 +35,20 @@ def GameEndInterface(screen, game_surface, cfg, score, highest_score, is_new_rec
     font_score = cfg.get_font(34)
     font_new = cfg.get_font(44)
 
+    end_surface = pygame.Surface(cfg.LOGICAL_SIZE)
+    end_surface.fill((255, 255, 255))
+    _render_centered(end_surface, font_large, '游戏结束', logical_h * 0.18)
+    _render_centered(end_surface, font_score, f'分数 {min(score, 99999):05d}', logical_h * 0.31)
+    _render_centered(end_surface, font_score, f'最高 {min(highest_score, 99999):05d}', logical_h * 0.39)
+    if is_new_record:
+        _render_centered(end_surface, font_new, '新的最高分！', logical_h * 0.49, (255, 60, 60))
+    _render_centered(end_surface, font_small, f'金币 {min(coins, 99999):05d}', logical_h * 0.56)
+    end_surface.blit(restart_img, restart_rect)
+    _render_centered(end_surface, font_small, '按 空格 / ↑ 重新开始', logical_h * 0.86)
+    _render_centered(end_surface, font_small, '按 S 打开商城    按 ESC 退出游戏', logical_h * 0.93)
+
     clock = pygame.time.Clock()
     while True:
-        clock.tick(60)
-
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return 'quit'
@@ -58,15 +71,6 @@ def GameEndInterface(screen, game_surface, cfg, score, highest_score, is_new_rec
                     sounds['button'].play()
                     return 'restart'
 
-        game_surface.fill((255, 255, 255))
-        _render_centered(game_surface, font_large, '游戏结束', logical_h * 0.18)
-        _render_centered(game_surface, font_score, f'分数 {min(score, 99999):05d}', logical_h * 0.31)
-        _render_centered(game_surface, font_score, f'最高 {min(highest_score, 99999):05d}', logical_h * 0.39)
-        if is_new_record:
-            _render_centered(game_surface, font_new, '新的最高分！', logical_h * 0.49, (255, 60, 60))
-        _render_centered(game_surface, font_small, f'金币 {min(coins, 99999):05d}', logical_h * 0.56)
-        game_surface.blit(restart_img, restart_rect)
-        _render_centered(game_surface, font_small, '按 空格 / ↑ 重新开始', logical_h * 0.86)
-        _render_centered(game_surface, font_small, '按 S 打开商城    按 ESC 退出游戏', logical_h * 0.93)
-
+        game_surface.blit(end_surface, (0, 0))
         cfg.blit_scaled(game_surface, screen)
+        clock.tick(cfg.FPS)

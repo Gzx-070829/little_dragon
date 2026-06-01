@@ -23,11 +23,36 @@ def scale_to_height(surface, height):
     if current_height == 0:
         return surface.copy()
     target_width = max(1, int(width * height / current_height))
-    return pygame.transform.smoothscale(surface, (target_width, height))
+    return pygame.transform.scale(surface, (target_width, height))
 
 
 class Cactus(pygame.sprite.Sprite):
     """仙人掌障碍物类"""
+
+    _IMAGE_CACHE = {}
+
+    @classmethod
+    def _get_images(cls, imagepaths, heights):
+        cache_key = (tuple(imagepaths), tuple(heights))
+        cached = cls._IMAGE_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        images = []
+        image = pygame.image.load(imagepaths[0]).convert_alpha()
+        for i in range(4):
+            frame = image.subsurface((i * 349, 0), (341, 575))
+            frame = trim_surface(frame)
+            images.append(scale_to_height(frame, heights[0]))
+
+        image = pygame.image.load(imagepaths[1]).convert_alpha()
+        for i in range(2):
+            frame = image.subsurface((i * 329, 0), (329, 565))
+            frame = trim_surface(frame)
+            images.append(scale_to_height(frame, heights[1]))
+
+        cls._IMAGE_CACHE[cache_key] = images
+        return images
 
     def __init__(self, imagepaths, position=None, heights=None, speed=10, **kwargs):
         """
@@ -44,19 +69,7 @@ class Cactus(pygame.sprite.Sprite):
         if heights is None:
             heights = (118, 82)
 
-        self.images = []
-        image = pygame.image.load(imagepaths[0]).convert_alpha()
-        for i in range(4):
-            frame = image.subsurface((i * 349, 0), (341, 575))
-            frame = trim_surface(frame)
-            self.images.append(scale_to_height(frame, heights[0]))
-
-        image = pygame.image.load(imagepaths[1]).convert_alpha()
-        for i in range(2):
-            frame = image.subsurface((i * 329, 0), (329, 565))
-            frame = trim_surface(frame)
-            self.images.append(scale_to_height(frame, heights[1]))
-
+        self.images = self._get_images(imagepaths, heights)
         self.image = random.choice(self.images)
         self.rect = self.image.get_rect()
         self.rect.left = position[0]
@@ -78,6 +91,25 @@ class Cactus(pygame.sprite.Sprite):
 class Ptera(pygame.sprite.Sprite):
     """翼龙障碍物类"""
 
+    _IMAGE_CACHE = {}
+
+    @classmethod
+    def _get_images(cls, imagepath, height):
+        cache_key = (imagepath, height)
+        cached = cls._IMAGE_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        images = []
+        image = pygame.image.load(imagepath).convert_alpha()
+        for i in range(2):
+            frame = image.subsurface((i * 1900, 0), (1900, 1047))
+            frame = trim_surface(frame)
+            images.append(scale_to_height(frame, height))
+
+        cls._IMAGE_CACHE[cache_key] = images
+        return images
+
     def __init__(self, imagepath, position=None, height=70, speed=10, **kwargs):
         """
         初始化翼龙障碍物
@@ -91,13 +123,7 @@ class Ptera(pygame.sprite.Sprite):
         if position is None:
             position = (core.SCREENSIZE[0], core.GROUND_Y - 100)
 
-        self.images = []
-        image = pygame.image.load(imagepath).convert_alpha()
-        for i in range(2):
-            frame = image.subsurface((i * 1900, 0), (1900, 1047))
-            frame = trim_surface(frame)
-            self.images.append(scale_to_height(frame, height))
-
+        self.images = self._get_images(imagepath, height)
         self.image_idx = 0
         self.image = self.images[self.image_idx]
         self.rect = self.image.get_rect()

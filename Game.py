@@ -265,7 +265,45 @@ def draw_hud(game_surface, font, coins, highest_score, score):
     game_surface.blit(score_surface, score_rect)
 
 
-def main(screen, conn, highest_score, coins, upgrades):
+
+class HUDCache:
+    """Cache HUD text surfaces and only re-render when numbers change."""
+
+    def __init__(self, font):
+        self.font = font
+        self.values = {}
+        self.surfaces = {}
+
+    def _surface(self, key, text, value):
+        if self.values.get(key) != value:
+            self.values[key] = value
+            self.surfaces[key] = self.font.render(text, True, core.BLACK)
+        return self.surfaces[key]
+
+    def draw(self, game_surface, coins, highest_score, score):
+        margin = 50
+        hud_y = 80
+        score_y = 120
+
+        safe_coins = max(0, min(int(coins), 99999))
+        safe_highest = max(0, min(int(highest_score), 99999))
+        safe_score = max(0, min(int(score), 99999))
+
+        coin_surface = self._surface('coins', f"金币 {safe_coins:05d}", safe_coins)
+        hi_surface = self._surface('highest', f"最高 {safe_highest:05d}", safe_highest)
+        score_surface = self._surface('score', f"分数 {safe_score:05d}", safe_score)
+
+        game_surface.blit(coin_surface, coin_surface.get_rect(topleft=(margin, hud_y)))
+        game_surface.blit(hi_surface, hi_surface.get_rect(topright=(core.LOGICAL_SIZE[0] - margin, hud_y)))
+        game_surface.blit(score_surface, score_surface.get_rect(topright=(core.LOGICAL_SIZE[0] - margin, score_y)))
+
+
+def load_sounds():
+    """Load each sound once at startup instead of once per game round."""
+    return {key: pygame.mixer.Sound(path) for key, path in core.AUDIO_PATHS.items()}
+
+
+def main(screen, conn, highest_score, coins, upgrades, sounds):
     """
     游戏主函数
 
@@ -281,10 +319,6 @@ def main(screen, conn, highest_score, coins, upgrades):
     """
     game_surface = pygame.Surface(core.LOGICAL_SIZE)
     pygame.display.set_caption('像素恐龙快跑')
-
-    sounds = {}
-    for key, path in core.AUDIO_PATHS.items():
-        sounds[key] = pygame.mixer.Sound(path)
 
     while True:
         start_action = GameStartInterface(screen, game_surface, sounds, core, coins, upgrades.get('equipped_skin', 'default'))
@@ -319,7 +353,7 @@ def main(screen, conn, highest_score, coins, upgrades):
     next_coin_gap = random.randint(100, 180)
     score_timer = 0
     clock = pygame.time.Clock()
-    hud_font = core.get_font(28)
+    hud_cache = HUDCache(core.get_font(28))
     current_speed = get_current_speed(score, upgrades)
     apply_speed_to_sprites(
         current_speed,
@@ -379,26 +413,28 @@ def main(screen, conn, highest_score, coins, upgrades):
         if add_obstacle_timer > next_obstacle_gap:
             add_obstacle_timer = 0
             next_obstacle_gap = next_obstacle_interval(score)
-            x = core.SCREENSIZE[0] + random.randint(80, 180)
+            total_obstacles = len(cactus_sprites_group) + len(ptera_sprites_group)
+            if total_obstacles < 4:
+                x = core.SCREENSIZE[0] + random.randint(80, 180)
 
-            if random.randint(0, 100) < 80:
-                cactus = Cactus(
-                    core.IMAGE_PATHS['cacti'],
-                    position=(x, core.GROUND_Y),
-                    speed=current_speed,
-                )
-                cactus_sprites_group.add(cactus)
-            else:
-                ptera_y = random.choice([core.GROUND_Y - 70, core.GROUND_Y - 130])
-                ptera = Ptera(
-                    core.IMAGE_PATHS['ptera'],
-                    position=(x, ptera_y),
-                    speed=current_speed,
-                )
-                ptera_sprites_group.add(ptera)
+                if random.randint(0, 100) < 80:
+                    cactus = Cactus(
+                        core.IMAGE_PATHS['cacti'],
+                        position=(x, core.GROUND_Y),
+                        speed=current_speed,
+                    )
+                    cactus_sprites_group.add(cactus)
+                else:
+                    ptera_y = random.choice([core.GROUND_Y - 70, core.GROUND_Y - 130])
+                    ptera = Ptera(
+                        core.IMAGE_PATHS['ptera'],
+                        position=(x, ptera_y),
+                        speed=current_speed,
+                    )
+                    ptera_sprites_group.add(ptera)
 
         add_coin_timer += 1
-        if add_coin_timer > next_coin_gap:
+        if len(coin_sprites_group) < 6 and add_coin_timer > next_coin_gap:
             add_coin_timer = 0
             next_coin_gap = random.randint(100, 190)
             x = core.SCREENSIZE[0] + random.randint(70, 170)
@@ -444,7 +480,7 @@ def main(screen, conn, highest_score, coins, upgrades):
         coin_sprites_group.draw(game_surface)
         dino.draw(game_surface)
 
-        draw_hud(game_surface, hud_font, coins, highest_score, score)
+        hud_cache.draw(game_surface, coins, highest_score, score)
 
         core.blit_scaled(game_surface, screen)
         clock.tick(core.FPS)
@@ -482,10 +518,11 @@ def main(screen, conn, highest_score, coins, upgrades):
 if __name__ == '__main__':
     pygame.init()
     screen = create_screen()
+    sounds = load_sounds()
     conn, highest_score, coins, upgrades = init_database()
     try:
         while True:
-            flag, highest_score, coins, upgrades = main(screen, conn, highest_score, coins, upgrades)
+            flag, highest_score, coins, upgrades = main(screen, conn, highest_score, coins, upgrades, sounds)
             screen = pygame.display.get_surface() or screen
             if not flag:
                 save_player_state(conn, coins, upgrades)
