@@ -4,8 +4,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SCREENSIZE = (1200, 600)  # 窗口宽度和高度
 FPS = 60  # 每秒帧数
-# 统一的地面基准线：角色脚底、仙人掌底部和地面滚动图片都围绕这里对齐。
+# 统一的地面表面基准线：角色脚底、仙人掌底部、金币和翼龙高度都围绕这里对齐。
 GROUND_Y = int(SCREENSIZE[1] * 0.86)
+# 仙人掌在裁掉透明边距后轻微下沉，确保视觉底部彻底贴住地面表面。
+CACTUS_GROUND_OFFSET = 4
+# 难度速度范围。Slow Start 升级会把起始速度降到 8。
+BASE_GAME_SPEED = 10
+SLOW_START_GAME_SPEED = 8
+MAX_GAME_SPEED = 24
 
 
 def resource_path(*parts):
