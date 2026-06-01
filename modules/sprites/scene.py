@@ -6,7 +6,6 @@ class Ground(pygame.sprite.Sprite):
     """地面类（无限滚动）"""
 
     def __init__(self, imagepath, position, **kwargs):
-        pygame.sprite.Sprite.__init__(self)
         super().__init__()
         # 加载地面图片
         self.image = pygame.image.load(imagepath).convert_alpha()
@@ -49,7 +48,6 @@ class Cloud(pygame.sprite.Sprite):
 
     def __init__(self, imagepath, position, **kwargs):
         super().__init__()
-        pygame.sprite.Sprite.__init__(self)
         # 加载并缩放云朵图片
         self.image = pygame.image.load(imagepath).convert_alpha()
         self.image = pygame.transform.scale(self.image, (80, 40))  # 合适大小
@@ -73,7 +71,7 @@ class Scoreboard(pygame.sprite.Sprite):
     """计分板类"""
 
     def __init__(self, score, fontpath, position, is_highest=False):
-        pygame.sprite.Sprite.__init__(self)
+        super().__init__()
         self.font = pygame.font.Font(fontpath, 30)  # 字体大小
         self.position = position
         self.is_highest = is_highest
