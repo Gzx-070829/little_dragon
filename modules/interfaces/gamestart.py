@@ -1,4 +1,3 @@
-import sys
 import pygame
 from ..sprites import Dinosaur
 
@@ -21,7 +20,7 @@ def GameStartInterface(screen, sounds, cfg):
 
     # 设计者信息文本
     designer_font = pygame.font.Font(cfg.FONT_PATHS['joystix'], 20)
-    designer_text = designer_font.render("DESIGNED BY YOUR NAME", True, (83, 83, 83))
+    designer_text = designer_font.render("PYGAME COURSE PROJECT", True, (83, 83, 83))
     designer_rect = designer_text.get_rect()
     designer_rect.centerx = screen.get_rect().centerx
     designer_rect.top = 150
@@ -52,12 +51,10 @@ def GameStartInterface(screen, sounds, cfg):
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                return False
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE or event.key == pygame.K_UP:
-                    # sounds['start'].play()
                     return True
 
         # 更新恐龙动画
