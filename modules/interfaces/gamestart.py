@@ -2,7 +2,7 @@ import pygame
 from ..sprites import Dinosaur
 
 
-def GameStartInterface(screen, game_surface, sounds, cfg, coins=0):
+def GameStartInterface(screen, game_surface, sounds, cfg, coins=0, equipped_skin='default'):
     """
     游戏开始界面
     Args:
@@ -43,7 +43,7 @@ def GameStartInterface(screen, game_surface, sounds, cfg, coins=0):
     coin_rect.top = int(cfg.LOGICAL_SIZE[1] * 0.68)
 
     # 创建恐龙对象用于展示
-    dino = Dinosaur(cfg.IMAGE_PATHS['dino'])
+    dino = Dinosaur(cfg.IMAGE_PATHS['dino'], skin=equipped_skin)
     dino.rect.bottom = cfg.GROUND_Y
     dino.rect.left = int(cfg.LOGICAL_SIZE[0] * 0.10)
 

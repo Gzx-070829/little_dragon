@@ -20,32 +20,59 @@ def scale_to_height(surface, height):
     return pygame.transform.smoothscale(surface, (target_width, height))
 
 
+def apply_skin(surface, skin):
+    """Return a recolored copy of a dinosaur frame while preserving transparency."""
+    if skin == 'default':
+        return surface
+
+    tinted = surface.copy()
+    overlay = pygame.Surface(tinted.get_size(), pygame.SRCALPHA)
+
+    if skin == 'blue':
+        overlay.fill((35, 110, 220, 0))
+        tinted.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+    elif skin == 'golden':
+        overlay.fill((235, 165, 25, 0))
+        tinted.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+    elif skin == 'night':
+        overlay.fill((70, 70, 95, 255))
+        tinted.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    else:
+        return surface
+
+    return tinted
+
+
 class Dinosaur(pygame.sprite.Sprite):
     """恐龙玩家角色。"""
 
-    def __init__(self, imagepaths, position=None, heights=(110, 78), **kwargs):
+    def __init__(self, imagepaths, position=None, heights=(110, 78), skin='default', **kwargs):
         """
         初始化恐龙角色
         Args:
             imagepaths (list): 恐龙图片路径列表 [正常状态, 下蹲状态]
             position (tuple): 恐龙初始位置，含义为 (left, bottom)
             heights (tuple): 恐龙图片的目标高度 [正常高度, 下蹲高度]
+            skin (str): 当前装备皮肤，支持 default/blue/golden/night
         """
         super().__init__()
         if position is None:
             position = (40, core.GROUND_Y)
 
+        self.skin = skin
         self.images = []
         image = pygame.image.load(imagepaths[0]).convert_alpha()
         for i in range(5):
             frame = image.subsurface((i * 270, 0), (270, 410))
             frame = trim_surface(frame)
-            self.images.append(scale_to_height(frame, heights[0]))
+            frame = scale_to_height(frame, heights[0])
+            self.images.append(apply_skin(frame, self.skin))
 
         image = pygame.image.load(imagepaths[1]).convert_alpha()
         duck_frame = image.subsurface((0, 0), (2015, 1338))
         duck_frame = trim_surface(duck_frame)
-        self.images.append(scale_to_height(duck_frame, heights[1]))
+        duck_frame = scale_to_height(duck_frame, heights[1])
+        self.images.append(apply_skin(duck_frame, self.skin))
 
         self.image_idx = 0
         self.image = self.images[self.image_idx]

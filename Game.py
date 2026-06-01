@@ -12,7 +12,15 @@ DB_PATH = os.path.join(core.BASE_DIR, 'history.db')
 
 
 def _default_upgrades():
-    return {'jump_boost': 0, 'slow_start': 0}
+    return {
+        'jump_boost': 0,
+        'slow_start': 0,
+        'magnet': 0,
+        'skin_blue': 0,
+        'skin_golden': 0,
+        'skin_night': 0,
+        'equipped_skin': 'default',
+    }
 
 
 def init_database():
@@ -33,14 +41,31 @@ def init_database():
             id INTEGER PRIMARY KEY CHECK (id = 1),
             coins INTEGER NOT NULL DEFAULT 0,
             jump_boost INTEGER NOT NULL DEFAULT 0,
-            slow_start INTEGER NOT NULL DEFAULT 0
+            slow_start INTEGER NOT NULL DEFAULT 0,
+            magnet INTEGER NOT NULL DEFAULT 0,
+            skin_blue INTEGER NOT NULL DEFAULT 0,
+            skin_golden INTEGER NOT NULL DEFAULT 0,
+            skin_night INTEGER NOT NULL DEFAULT 0,
+            equipped_skin TEXT NOT NULL DEFAULT 'default'
         );
         """
     )
+    for column_sql in (
+        "ALTER TABLE player_state ADD COLUMN magnet INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE player_state ADD COLUMN skin_blue INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE player_state ADD COLUMN skin_golden INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE player_state ADD COLUMN skin_night INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE player_state ADD COLUMN equipped_skin TEXT NOT NULL DEFAULT 'default'",
+    ):
+        try:
+            cursor.execute(column_sql)
+        except sqlite3.OperationalError:
+            pass
     cursor.execute(
         """
-        INSERT OR IGNORE INTO player_state (id, coins, jump_boost, slow_start)
-        VALUES (1, 0, 0, 0);
+        INSERT OR IGNORE INTO player_state (id, coins, jump_boost, slow_start, magnet,
+                                            skin_blue, skin_golden, skin_night, equipped_skin)
+        VALUES (1, 0, 0, 0, 0, 0, 0, 0, 'default');
         """
     )
     conn.commit()
@@ -64,22 +89,41 @@ def load_player_state(conn):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT coins, jump_boost, slow_start FROM player_state WHERE id = 1;"
+            """
+            SELECT coins, jump_boost, slow_start, magnet,
+                   skin_blue, skin_golden, skin_night, equipped_skin
+            FROM player_state WHERE id = 1;
+            """
         )
         row = cursor.fetchone()
         if row is None:
             cursor.execute(
                 """
-                INSERT INTO player_state (id, coins, jump_boost, slow_start)
-                VALUES (1, 0, 0, 0);
+                INSERT INTO player_state (id, coins, jump_boost, slow_start, magnet,
+                                          skin_blue, skin_golden, skin_night, equipped_skin)
+                VALUES (1, 0, 0, 0, 0, 0, 0, 0, 'default');
                 """
             )
             conn.commit()
             return 0, upgrades
 
-        coins, jump_boost, slow_start = row
+        (
+            coins,
+            jump_boost,
+            slow_start,
+            magnet,
+            skin_blue,
+            skin_golden,
+            skin_night,
+            equipped_skin,
+        ) = row
         upgrades['jump_boost'] = int(jump_boost)
         upgrades['slow_start'] = int(slow_start)
+        upgrades['magnet'] = int(magnet)
+        upgrades['skin_blue'] = int(skin_blue)
+        upgrades['skin_golden'] = int(skin_golden)
+        upgrades['skin_night'] = int(skin_night)
+        upgrades['equipped_skin'] = equipped_skin if equipped_skin in ('default', 'blue', 'golden', 'night') else 'default'
         return int(coins), upgrades
     except Exception as e:
         print(f"读取玩家状态失败: {e}")
@@ -93,13 +137,19 @@ def save_player_state(conn, coins, upgrades):
         cursor.execute(
             """
             UPDATE player_state
-            SET coins = ?, jump_boost = ?, slow_start = ?
+            SET coins = ?, jump_boost = ?, slow_start = ?, magnet = ?,
+                skin_blue = ?, skin_golden = ?, skin_night = ?, equipped_skin = ?
             WHERE id = 1;
             """,
             (
                 int(coins),
                 int(upgrades.get('jump_boost', 0)),
                 int(upgrades.get('slow_start', 0)),
+                int(upgrades.get('magnet', 0)),
+                int(upgrades.get('skin_blue', 0)),
+                int(upgrades.get('skin_golden', 0)),
+                int(upgrades.get('skin_night', 0)),
+                upgrades.get('equipped_skin', 'default'),
             )
         )
         conn.commit()
@@ -121,8 +171,19 @@ def save_score(conn, score):
 
 
 def open_shop(screen, game_surface, sounds, coins, upgrades, conn):
-    """打开商城并立即保存购买结果。"""
-    coins, upgrades = ShopInterface(screen, game_surface, core, coins, upgrades, sounds)
+    """打开商城并立即保存购买和装备结果。"""
+    def save_shop_state(shop_coins, shop_upgrades):
+        save_player_state(conn, shop_coins, shop_upgrades)
+
+    coins, upgrades = ShopInterface(
+        screen,
+        game_surface,
+        core,
+        coins,
+        upgrades,
+        sounds,
+        save_callback=save_shop_state,
+    )
     save_player_state(conn, coins, upgrades)
     return coins, upgrades
 
@@ -158,6 +219,19 @@ def next_obstacle_interval(score):
     """分数越高障碍物间隔略微缩短，但保留可反应空间。"""
     difficulty_steps = min(score // 1000, 8)
     return random.randint(75 - difficulty_steps * 2, 140 - difficulty_steps * 4)
+
+
+def apply_coin_magnet(dino, coin_sprites_group):
+    """Pull nearby coins toward the dinosaur when the Magnet upgrade is owned."""
+    magnet_radius = 175
+    pull_strength = 0.18
+    for coin in coin_sprites_group:
+        dx = dino.rect.centerx - coin.rect.centerx
+        dy = dino.rect.centery - coin.rect.centery
+        distance_squared = dx * dx + dy * dy
+        if 0 < distance_squared <= magnet_radius * magnet_radius:
+            coin.rect.x += int(dx * pull_strength)
+            coin.rect.y += int(dy * pull_strength)
 
 
 def create_screen():
@@ -214,7 +288,7 @@ def main(conn, highest_score, coins, upgrades):
         sounds[key] = pygame.mixer.Sound(path)
 
     while True:
-        start_action = GameStartInterface(screen, game_surface, sounds, core, coins)
+        start_action = GameStartInterface(screen, game_surface, sounds, core, coins, upgrades.get('equipped_skin', 'default'))
         screen = pygame.display.get_surface() or screen
         if start_action == 'start':
             break
@@ -225,7 +299,11 @@ def main(conn, highest_score, coins, upgrades):
         return False, highest_score, coins, upgrades
 
     score = 0
-    dino = Dinosaur(core.IMAGE_PATHS['dino'], position=(40, core.GROUND_Y))
+    dino = Dinosaur(
+        core.IMAGE_PATHS['dino'],
+        position=(40, core.GROUND_Y),
+        skin=upgrades.get('equipped_skin', 'default'),
+    )
     if upgrades.get('jump_boost', 0):
         dino.speed = 21
 
@@ -338,6 +416,8 @@ def main(conn, highest_score, coins, upgrades):
         cactus_sprites_group.update()
         ptera_sprites_group.update()
         coin_sprites_group.update()
+        if upgrades.get('magnet', 0):
+            apply_coin_magnet(dino, coin_sprites_group)
 
         hit_cactus = any(
             pygame.sprite.collide_mask(dino, cactus) for cactus in cactus_sprites_group
