@@ -153,7 +153,10 @@ IMAGE_PATHS = {
     ],
     'ground': resource_path('images', 'ground-4x.png'),
     'ptera': resource_path('images', 'ptera.png'),
-    'replay': resource_path('images', 'replay.png')
+    'replay': resource_path('images', 'replay.png'),
+    'custom_icecream_coin': resource_path('images', 'custom', 'icecream_coin.jpg'),
+    'custom_text_cloud': resource_path('images', 'custom', 'text_cloud.jpg'),
+    'custom_runner_sheet': resource_path('images', 'custom', 'runner_sheet.jpg')
 }
 
 # 字体资源路径

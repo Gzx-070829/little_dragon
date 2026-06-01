@@ -1,5 +1,6 @@
 import pygame
 import core
+from .custom_assets import load_processed_custom_image, scale_to_fit
 
 
 class Ground(pygame.sprite.Sprite):
@@ -52,23 +53,48 @@ class Ground(pygame.sprite.Sprite):
 
 
 class Cloud(pygame.sprite.Sprite):
-    """云朵类"""
+    """云朵类，支持缓存后的商城云朵皮肤。"""
 
     _IMAGE_CACHE = {}
 
     @classmethod
-    def _get_image(cls, imagepath):
-        cached = cls._IMAGE_CACHE.get(imagepath)
+    def _default_image(cls, imagepath):
+        cache_key = ('default', imagepath)
+        cached = cls._IMAGE_CACHE.get(cache_key)
         if cached is not None:
             return cached
         image = pygame.image.load(imagepath).convert_alpha()
         image = pygame.transform.scale(image, (80, 40))
-        cls._IMAGE_CACHE[imagepath] = image
+        cls._IMAGE_CACHE[cache_key] = image
         return image
 
-    def __init__(self, imagepath, position, **kwargs):
+    @classmethod
+    def _get_image(cls, imagepath, skin='default'):
+        if skin != 'text_cloud':
+            return cls._default_image(imagepath)
+
+        cache_key = ('text_cloud', core.IMAGE_PATHS.get('custom_text_cloud'))
+        cached = cls._IMAGE_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            image = load_processed_custom_image(
+                core.IMAGE_PATHS['custom_text_cloud'],
+                bg='black',
+                tolerance=38,
+            )
+            image = scale_to_fit(image, max_width=220, max_height=95)
+        except Exception as e:
+            print(f"加载文字云朵失败，使用默认云朵: {e}")
+            image = cls._default_image(imagepath)
+
+        cls._IMAGE_CACHE[cache_key] = image
+        return image
+
+    def __init__(self, imagepath, position, skin='default', **kwargs):
         super().__init__()
-        self.image = self._get_image(imagepath)
+        self.image = self._get_image(imagepath, skin)
         self.rect = self.image.get_rect()
         self.rect.topleft = position
 
@@ -86,27 +112,47 @@ class Cloud(pygame.sprite.Sprite):
 
 
 class Coin(pygame.sprite.Sprite):
-    """像素风金币精灵，不依赖额外图片资源。"""
+    """金币/收集物精灵，优先使用缓存后的雪糕图片，失败时回退圆形金币。"""
 
     _IMAGE_CACHE = {}
 
     @classmethod
-    def _get_image(cls, radius):
-        cached = cls._IMAGE_CACHE.get(radius)
+    def _get_fallback_image(cls, radius):
+        cache_key = ('fallback', radius)
+        cached = cls._IMAGE_CACHE.get(cache_key)
         if cached is not None:
             return cached
 
         size = radius * 2 + 4
         image = pygame.Surface((size, size), pygame.SRCALPHA)
         center = (size // 2, size // 2)
-
-        # 用简单图形画出金币，避免新增或替换图片资源。
         pygame.draw.circle(image, (178, 111, 0), center, radius + 1)
         pygame.draw.circle(image, (255, 205, 55), center, radius)
         pygame.draw.circle(image, (255, 235, 120), (center[0] - 4, center[1] - 5), radius // 3)
         pygame.draw.rect(image, (204, 132, 0), (center[0] - 2, center[1] - 8, 4, 16))
 
-        cls._IMAGE_CACHE[radius] = image
+        cls._IMAGE_CACHE[cache_key] = image
+        return image
+
+    @classmethod
+    def _get_image(cls, radius):
+        cache_key = ('icecream', core.IMAGE_PATHS.get('custom_icecream_coin'), radius)
+        cached = cls._IMAGE_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            image = load_processed_custom_image(
+                core.IMAGE_PATHS['custom_icecream_coin'],
+                bg='white',
+                tolerance=34,
+            )
+            image = scale_to_fit(image, max_width=46, max_height=58)
+        except Exception as e:
+            print(f"加载雪糕金币失败，使用默认金币: {e}")
+            image = cls._get_fallback_image(radius)
+
+        cls._IMAGE_CACHE[cache_key] = image
         return image
 
     def __init__(self, position, speed=10, radius=14, **kwargs):
