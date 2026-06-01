@@ -98,7 +98,8 @@ def ShopInterface(screen, game_surface, cfg, coins, upgrades, sounds=None, save_
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return coins, upgrades
+                pygame.quit()
+                raise SystemExit
 
             if event.type == pygame.VIDEORESIZE:
                 screen = cfg.resize_screen(event.size)
