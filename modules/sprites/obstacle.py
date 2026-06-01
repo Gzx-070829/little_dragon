@@ -76,6 +76,7 @@ class Cactus(pygame.sprite.Sprite):
         self.rect.bottom = position[1] + core.CACTUS_GROUND_OFFSET
         self.mask = pygame.mask.from_surface(self.image)
         self.speed = -abs(speed)
+        self.counted = False
 
     def draw(self, screen):
         """绘制仙人掌到屏幕"""
@@ -132,6 +133,7 @@ class Ptera(pygame.sprite.Sprite):
         self.speed = -abs(speed)
         self.refresh_rate = 10
         self.refresh_counter = 0
+        self.counted = False
 
     def draw(self, screen):
         """绘制翼龙到屏幕"""
