@@ -127,15 +127,37 @@ def open_shop(screen, sounds, coins, upgrades, conn):
     return coins, upgrades
 
 
-def apply_speed_to_sprites(game_speed, ground, cactus_sprites_group, ptera_sprites_group, coin_sprites_group):
+def get_current_speed(score, upgrades):
+    """根据当前分数连续计算速度，避免整千分突变或漏触发。"""
+    base_speed = (
+        core.SLOW_START_GAME_SPEED
+        if upgrades.get('slow_start', 0)
+        else core.BASE_GAME_SPEED
+    )
+    return min(core.MAX_GAME_SPEED, base_speed + score // 500)
+
+
+def apply_speed_to_sprites(
+    current_speed,
+    ground,
+    cactus_sprites_group,
+    ptera_sprites_group,
+    coin_sprites_group,
+):
     """把当前游戏速度同步给所有横向移动对象。"""
-    ground.speed = -game_speed
+    ground.speed = -current_speed
     for cactus in cactus_sprites_group:
-        cactus.speed = -game_speed
+        cactus.speed = -current_speed
     for ptera in ptera_sprites_group:
-        ptera.speed = -game_speed
+        ptera.speed = -current_speed
     for coin in coin_sprites_group:
-        coin.set_speed(game_speed)
+        coin.set_speed(current_speed)
+
+
+def next_obstacle_interval(score):
+    """分数越高障碍物间隔略微缩短，但保留可反应空间。"""
+    difficulty_steps = min(score // 1000, 8)
+    return random.randint(75 - difficulty_steps * 2, 140 - difficulty_steps * 4)
 
 
 def main(conn, highest_score, coins, upgrades):
@@ -173,7 +195,7 @@ def main(conn, highest_score, coins, upgrades):
     if upgrades.get('jump_boost', 0):
         dino.speed = 21
 
-    ground = Ground(core.IMAGE_PATHS['ground'], position=(0, core.GROUND_Y - 12))
+    ground = Ground(core.IMAGE_PATHS['ground'], position=(0, core.GROUND_Y))
 
     cloud_sprites_group = pygame.sprite.Group()
     cactus_sprites_group = pygame.sprite.Group()
@@ -181,13 +203,19 @@ def main(conn, highest_score, coins, upgrades):
     coin_sprites_group = pygame.sprite.Group()
 
     add_obstacle_timer = 0
-    next_obstacle_gap = random.randint(75, 140)
+    next_obstacle_gap = next_obstacle_interval(score)
     add_coin_timer = 0
     next_coin_gap = random.randint(100, 180)
     score_timer = 0
     clock = pygame.time.Clock()
-    game_speed = 8 if upgrades.get('slow_start', 0) else 10
-    apply_speed_to_sprites(game_speed, ground, cactus_sprites_group, ptera_sprites_group, coin_sprites_group)
+    current_speed = get_current_speed(score, upgrades)
+    apply_speed_to_sprites(
+        current_speed,
+        ground,
+        cactus_sprites_group,
+        ptera_sprites_group,
+        coin_sprites_group,
+    )
 
     while True:
         for event in pygame.event.get():
@@ -205,6 +233,22 @@ def main(conn, highest_score, coins, upgrades):
                 if event.key == pygame.K_DOWN or event.key == pygame.K_LSHIFT:
                     dino.unduck()
 
+        score_timer += 1
+        if score_timer > 10:
+            score_timer = 0
+            score += 1
+            if score % 100 == 0:
+                sounds['point'].play()
+
+        current_speed = get_current_speed(score, upgrades)
+        apply_speed_to_sprites(
+            current_speed,
+            ground,
+            cactus_sprites_group,
+            ptera_sprites_group,
+            coin_sprites_group,
+        )
+
         screen.fill(core.BACKGROUND_COLOR)
 
         if len(cloud_sprites_group) < 5 and random.randint(0, 600) == 1:
@@ -216,15 +260,23 @@ def main(conn, highest_score, coins, upgrades):
         add_obstacle_timer += 1
         if add_obstacle_timer > next_obstacle_gap:
             add_obstacle_timer = 0
-            next_obstacle_gap = random.randint(75, 140)
+            next_obstacle_gap = next_obstacle_interval(score)
             x = core.SCREENSIZE[0] + 100
 
             if random.randint(0, 100) < 80:
-                cactus = Cactus(core.IMAGE_PATHS['cacti'], position=(x, core.GROUND_Y), speed=game_speed)
+                cactus = Cactus(
+                    core.IMAGE_PATHS['cacti'],
+                    position=(x, core.GROUND_Y),
+                    speed=current_speed,
+                )
                 cactus_sprites_group.add(cactus)
             else:
                 ptera_y = random.choice([core.GROUND_Y - 70, core.GROUND_Y - 130])
-                ptera = Ptera(core.IMAGE_PATHS['ptera'], position=(x, ptera_y), speed=game_speed)
+                ptera = Ptera(
+                    core.IMAGE_PATHS['ptera'],
+                    position=(x, ptera_y),
+                    speed=current_speed,
+                )
                 ptera_sprites_group.add(ptera)
 
         add_coin_timer += 1
@@ -233,12 +285,11 @@ def main(conn, highest_score, coins, upgrades):
             next_coin_gap = random.randint(100, 190)
             x = core.SCREENSIZE[0] + 90
             coin_y = random.choice([
-                core.GROUND_Y - 30,
-                core.GROUND_Y - 30,
-                core.GROUND_Y - 145,
-                core.GROUND_Y - 205,
+                core.GROUND_Y - 35,
+                core.GROUND_Y - 35,
+                core.GROUND_Y - 110,
             ])
-            coin_sprites_group.add(Coin(position=(x, coin_y), speed=game_speed))
+            coin_sprites_group.add(Coin(position=(x, coin_y), speed=current_speed))
 
         dino.update()
         ground.update()
@@ -246,22 +297,6 @@ def main(conn, highest_score, coins, upgrades):
         cactus_sprites_group.update()
         ptera_sprites_group.update()
         coin_sprites_group.update()
-
-        score_timer += 1
-        if score_timer > 10:
-            score_timer = 0
-            score += 1
-            if score % 100 == 0:
-                sounds['point'].play()
-            if score % 500 == 0:
-                game_speed = min(game_speed + 1, 18)
-                apply_speed_to_sprites(
-                    game_speed,
-                    ground,
-                    cactus_sprites_group,
-                    ptera_sprites_group,
-                    coin_sprites_group,
-                )
 
         hit_cactus = any(
             pygame.sprite.collide_mask(dino, cactus) for cactus in cactus_sprites_group
@@ -289,14 +324,24 @@ def main(conn, highest_score, coins, upgrades):
         coin_sprites_group.draw(screen)
         dino.draw(screen)
 
-        score_board = Scoreboard(score, core.FONT_PATHS['joystix'], (core.SCREENSIZE[0] - 150, 30))
-        highest_board = Scoreboard(
-            highest_score,
+        coin_board = Scoreboard(
+            coins,
             core.FONT_PATHS['joystix'],
-            (core.SCREENSIZE[0] - 350, 30),
-            is_highest=True
+            (50, 90),
+            prefix='COIN',
         )
-        coin_board = Scoreboard(coins, core.FONT_PATHS['joystix'], (30, 30), label='COIN')
+        highest_board = Scoreboard(
+            min(highest_score, 99999),
+            core.FONT_PATHS['joystix'],
+            (core.SCREENSIZE[0] - 360, 90),
+            prefix='HI',
+        )
+        score_board = Scoreboard(
+            score,
+            core.FONT_PATHS['joystix'],
+            (core.SCREENSIZE[0] - 190, 90),
+            prefix='SCORE',
+        )
         score_board.draw(screen)
         highest_board.draw(screen)
         coin_board.draw(screen)

@@ -6,7 +6,12 @@ import core
 
 def trim_surface(surface):
     """裁掉透明边距，避免图片内容看起来悬浮并让 mask 更贴合。"""
-    bounds = surface.get_bounding_rect()
+    bounds = pygame.mask.from_surface(surface).get_bounding_rects()
+    bounds = (
+        surface.get_bounding_rect()
+        if not bounds
+        else bounds[0].unionall(bounds[1:])
+    )
     if bounds.width == 0 or bounds.height == 0:
         return surface.copy()
     return surface.subsurface(bounds).copy()
@@ -52,7 +57,8 @@ class Cactus(pygame.sprite.Sprite):
 
         self.image = random.choice(self.images)
         self.rect = self.image.get_rect()
-        self.rect.left, self.rect.bottom = position
+        self.rect.left = position[0]
+        self.rect.bottom = position[1] + core.CACTUS_GROUND_OFFSET
         self.mask = pygame.mask.from_surface(self.image)
         self.speed = -abs(speed)
 

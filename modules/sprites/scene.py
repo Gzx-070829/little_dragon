@@ -5,14 +5,14 @@ import core
 class Ground(pygame.sprite.Sprite):
     """地面类（无限滚动）"""
 
-    def __init__(self, imagepath, position=(0, core.GROUND_Y - 12), **kwargs):
+    def __init__(self, imagepath, position=(0, core.GROUND_Y), **kwargs):
         super().__init__()
         # 加载地面图片
         self.image = pygame.image.load(imagepath).convert_alpha()
 
         sw, sh = core.SCREENSIZE
 
-        # 缩放到屏幕宽度，并让地面纹理贴近统一的 GROUND_Y 基准线。
+        # 缩放到屏幕宽度，并让地面图片上沿对齐统一的 GROUND_Y 地面表面。
         self.image = pygame.transform.scale(self.image, (sw, 70))
         self.rect = self.image.get_rect()
         self.rect.topleft = position
@@ -108,27 +108,19 @@ class Coin(pygame.sprite.Sprite):
 class Scoreboard(pygame.sprite.Sprite):
     """计分板类"""
 
-    def __init__(self, score, fontpath, position, is_highest=False, label=None):
+    def __init__(self, score, fontpath, position, prefix=None, font_size=24):
         super().__init__()
-        self.font = pygame.font.Font(fontpath, 30)  # 字体大小
+        self.font = pygame.font.Font(fontpath, font_size)
         self.position = position
-        self.is_highest = is_highest
         self.score = score
-        self.label = label
+        self.prefix = prefix
         self.color = (83, 83, 83)  # 深灰色字体
 
     def draw(self, screen):
-        # 补零到 5 位：00000
-        score_str = str(self.score).zfill(5)
+        # 显示层限制到 5 位，避免异常历史分数把右上角计分板挤在一起。
+        safe_score = max(0, min(int(self.score), 99999))
+        score_str = f"{safe_score:05d}"
+        text = f"{self.prefix} {score_str}" if self.prefix else score_str
 
-        # 是最高分就加 HI；金币等其他数值可传入 label。
-        if self.label:
-            text = f"{self.label} {score_str}"
-        elif self.is_highest:
-            text = f"HI {score_str}"
-        else:
-            text = score_str
-
-        # 渲染文字
         surface = self.font.render(text, True, self.color)
         screen.blit(surface, self.position)
