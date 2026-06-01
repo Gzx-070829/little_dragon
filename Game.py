@@ -73,21 +73,19 @@ def main(conn, highest_score):
         return False, highest_score
 
     score = 0
-    dino = Dinosaur(core.IMAGE_PATHS['dino'])
-    _, screen_height = core.SCREENSIZE
-    ground = Ground(
-        core.IMAGE_PATHS['ground'],
-        position=(0, screen_height - 50)
-    )
+    dino = Dinosaur(core.IMAGE_PATHS['dino'], position=(40, core.GROUND_Y))
+    ground = Ground(core.IMAGE_PATHS['ground'], position=(0, core.GROUND_Y - 12))
 
     cloud_sprites_group = pygame.sprite.Group()
     cactus_sprites_group = pygame.sprite.Group()
     ptera_sprites_group = pygame.sprite.Group()
 
     add_obstacle_timer = 0
+    next_obstacle_gap = random.randint(75, 140)
     score_timer = 0
     clock = pygame.time.Clock()
     game_speed = 10
+    ground.speed = -game_speed
 
     while True:
         for event in pygame.event.get():
@@ -113,19 +111,17 @@ def main(conn, highest_score):
             cloud_sprites_group.add(cloud)
 
         add_obstacle_timer += 1
-        if add_obstacle_timer > random.randint(70, 150):
+        if add_obstacle_timer > next_obstacle_gap:
             add_obstacle_timer = 0
+            next_obstacle_gap = random.randint(75, 140)
             x = core.SCREENSIZE[0] + 100
-            y = ground.rect.top
 
             if random.randint(0, 100) < 80:
-                cactus = Cactus(core.IMAGE_PATHS['cacti'], position=(x, y))
-                cactus.speed = -game_speed
+                cactus = Cactus(core.IMAGE_PATHS['cacti'], position=(x, core.GROUND_Y), speed=game_speed)
                 cactus_sprites_group.add(cactus)
             else:
-                ptera_y = random.choice([y - 60, y - 120])
-                ptera = Ptera(core.IMAGE_PATHS['ptera'], position=(x, ptera_y))
-                ptera.speed = -game_speed
+                ptera_y = random.choice([core.GROUND_Y - 70, core.GROUND_Y - 130])
+                ptera = Ptera(core.IMAGE_PATHS['ptera'], position=(x, ptera_y), speed=game_speed)
                 ptera_sprites_group.add(ptera)
 
         dino.update()
@@ -140,8 +136,8 @@ def main(conn, highest_score):
             score += 1
             if score % 100 == 0:
                 sounds['point'].play()
-            if score % 1000 == 0:
-                game_speed += 1
+            if score % 500 == 0:
+                game_speed = min(game_speed + 1, 18)
                 ground.speed = -game_speed
                 for cactus in cactus_sprites_group:
                     cactus.speed = -game_speed

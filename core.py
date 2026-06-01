@@ -4,6 +4,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SCREENSIZE = (1200, 600)  # 窗口宽度和高度
 FPS = 60  # 每秒帧数
+# 统一的地面基准线：角色脚底、仙人掌底部和地面滚动图片都围绕这里对齐。
+GROUND_Y = int(SCREENSIZE[1] * 0.86)
+
 
 def resource_path(*parts):
     """Return an absolute path inside the project resources directory."""
