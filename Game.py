@@ -21,7 +21,10 @@ def _default_upgrades():
         'skin_blue': 0,
         'skin_golden': 0,
         'skin_night': 0,
+        'skin_runner': 0,
         'equipped_skin': 'default',
+        'cloud_text_skin': 0,
+        'equipped_cloud_skin': 'default',
     }
 
 
@@ -48,7 +51,10 @@ def init_database():
             skin_blue INTEGER NOT NULL DEFAULT 0,
             skin_golden INTEGER NOT NULL DEFAULT 0,
             skin_night INTEGER NOT NULL DEFAULT 0,
-            equipped_skin TEXT NOT NULL DEFAULT 'default'
+            skin_runner INTEGER NOT NULL DEFAULT 0,
+            equipped_skin TEXT NOT NULL DEFAULT 'default',
+            cloud_text_skin INTEGER NOT NULL DEFAULT 0,
+            equipped_cloud_skin TEXT NOT NULL DEFAULT 'default'
         );
         """
     )
@@ -57,7 +63,10 @@ def init_database():
         "ALTER TABLE player_state ADD COLUMN skin_blue INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE player_state ADD COLUMN skin_golden INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE player_state ADD COLUMN skin_night INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE player_state ADD COLUMN skin_runner INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE player_state ADD COLUMN equipped_skin TEXT NOT NULL DEFAULT 'default'",
+        "ALTER TABLE player_state ADD COLUMN cloud_text_skin INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE player_state ADD COLUMN equipped_cloud_skin TEXT NOT NULL DEFAULT 'default'",
     ):
         try:
             cursor.execute(column_sql)
@@ -66,8 +75,9 @@ def init_database():
     cursor.execute(
         """
         INSERT OR IGNORE INTO player_state (id, coins, jump_boost, slow_start, magnet,
-                                            skin_blue, skin_golden, skin_night, equipped_skin)
-        VALUES (1, 0, 0, 0, 0, 0, 0, 0, 'default');
+                                            skin_blue, skin_golden, skin_night, skin_runner,
+                                            equipped_skin, cloud_text_skin, equipped_cloud_skin)
+        VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 'default', 0, 'default');
         """
     )
     conn.commit()
@@ -93,7 +103,8 @@ def load_player_state(conn):
         cursor.execute(
             """
             SELECT coins, jump_boost, slow_start, magnet,
-                   skin_blue, skin_golden, skin_night, equipped_skin
+                   skin_blue, skin_golden, skin_night, skin_runner,
+                   equipped_skin, cloud_text_skin, equipped_cloud_skin
             FROM player_state WHERE id = 1;
             """
         )
@@ -102,8 +113,9 @@ def load_player_state(conn):
             cursor.execute(
                 """
                 INSERT INTO player_state (id, coins, jump_boost, slow_start, magnet,
-                                          skin_blue, skin_golden, skin_night, equipped_skin)
-                VALUES (1, 0, 0, 0, 0, 0, 0, 0, 'default');
+                                          skin_blue, skin_golden, skin_night, skin_runner,
+                                          equipped_skin, cloud_text_skin, equipped_cloud_skin)
+                VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 'default', 0, 'default');
                 """
             )
             conn.commit()
@@ -117,7 +129,10 @@ def load_player_state(conn):
             skin_blue,
             skin_golden,
             skin_night,
+            skin_runner,
             equipped_skin,
+            cloud_text_skin,
+            equipped_cloud_skin,
         ) = row
         upgrades['jump_boost'] = int(jump_boost)
         upgrades['slow_start'] = int(slow_start)
@@ -125,7 +140,10 @@ def load_player_state(conn):
         upgrades['skin_blue'] = int(skin_blue)
         upgrades['skin_golden'] = int(skin_golden)
         upgrades['skin_night'] = int(skin_night)
-        upgrades['equipped_skin'] = equipped_skin if equipped_skin in ('default', 'blue', 'golden', 'night') else 'default'
+        upgrades['skin_runner'] = int(skin_runner)
+        upgrades['equipped_skin'] = equipped_skin if equipped_skin in ('default', 'blue', 'golden', 'night', 'runner') else 'default'
+        upgrades['cloud_text_skin'] = int(cloud_text_skin)
+        upgrades['equipped_cloud_skin'] = equipped_cloud_skin if equipped_cloud_skin in ('default', 'text_cloud') else 'default'
         return int(coins), upgrades
     except Exception as e:
         print(f"读取玩家状态失败: {e}")
@@ -140,7 +158,8 @@ def save_player_state(conn, coins, upgrades):
             """
             UPDATE player_state
             SET coins = ?, jump_boost = ?, slow_start = ?, magnet = ?,
-                skin_blue = ?, skin_golden = ?, skin_night = ?, equipped_skin = ?
+                skin_blue = ?, skin_golden = ?, skin_night = ?, skin_runner = ?,
+                equipped_skin = ?, cloud_text_skin = ?, equipped_cloud_skin = ?
             WHERE id = 1;
             """,
             (
@@ -151,7 +170,10 @@ def save_player_state(conn, coins, upgrades):
                 int(upgrades.get('skin_blue', 0)),
                 int(upgrades.get('skin_golden', 0)),
                 int(upgrades.get('skin_night', 0)),
+                int(upgrades.get('skin_runner', 0)),
                 upgrades.get('equipped_skin', 'default'),
+                int(upgrades.get('cloud_text_skin', 0)),
+                upgrades.get('equipped_cloud_skin', 'default'),
             )
         )
         conn.commit()
@@ -411,7 +433,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
     )
 
     if len(state['clouds']) < 5 and random.randint(0, 600) == 1:
-        state['clouds'].add(Cloud(core.IMAGE_PATHS['cloud'], position=(core.SCREENSIZE[0] + random.randint(80, 180), random.randint(50, 200))))
+        state['clouds'].add(Cloud(core.IMAGE_PATHS['cloud'], position=(core.SCREENSIZE[0] + random.randint(80, 180), random.randint(50, 200)), skin=upgrades.get('equipped_cloud_skin', 'default')))
 
     state['add_obstacle_timer'] += 1
     if state['add_obstacle_timer'] > state['next_obstacle_gap']:
@@ -901,7 +923,7 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
         if len(cloud_sprites_group) < 5 and random.randint(0, 600) == 1:
             x = core.SCREENSIZE[0] + random.randint(80, 180)
             y = random.randint(50, 200)
-            cloud = Cloud(core.IMAGE_PATHS['cloud'], position=(x, y))
+            cloud = Cloud(core.IMAGE_PATHS['cloud'], position=(x, y), skin=upgrades.get('equipped_cloud_skin', 'default'))
             cloud_sprites_group.add(cloud)
 
         add_obstacle_timer += 1

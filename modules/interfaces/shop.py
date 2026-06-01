@@ -33,23 +33,41 @@ SKIN_ITEMS = {
     pygame.K_5: {
         'key': 'blue',
         'owned_key': 'skin_blue',
-        'name': '蓝色恐龙',
+        'name': '蓝色皮肤',
         'cost': 6,
         'cost_text': '6 金币',
     },
     pygame.K_6: {
         'key': 'golden',
         'owned_key': 'skin_golden',
-        'name': '黄金恐龙',
+        'name': '黄金皮肤',
         'cost': 12,
         'cost_text': '12 金币',
     },
     pygame.K_7: {
         'key': 'night',
         'owned_key': 'skin_night',
-        'name': '暗夜恐龙',
+        'name': '暗夜皮肤',
         'cost': 15,
         'cost_text': '15 金币',
+    },
+    pygame.K_8: {
+        'key': 'runner',
+        'owned_key': 'skin_runner',
+        'name': '奔跑人物',
+        'cost': 20,
+        'cost_text': '20 金币',
+    },
+}
+
+SCENE_SKIN_ITEMS = {
+    pygame.K_c: {
+        'key': 'text_cloud',
+        'owned_key': 'cloud_text_skin',
+        'equip_key': 'equipped_cloud_skin',
+        'name': '文字云朵',
+        'cost': 10,
+        'cost_text': '10 金币',
     },
 }
 
@@ -78,6 +96,18 @@ def _skin_status(upgrades, skin_item):
     return '购买'
 
 
+def _owns_scene_skin(upgrades, scene_item):
+    return bool(upgrades.get(scene_item['owned_key'], 0))
+
+
+def _scene_skin_status(upgrades, scene_item):
+    if upgrades.get(scene_item['equip_key'], 'default') == scene_item['key']:
+        return '已装备'
+    if _owns_scene_skin(upgrades, scene_item):
+        return '已拥有 / 装备'
+    return '购买'
+
+
 def _save_if_needed(save_callback, coins, upgrades):
     if save_callback:
         save_callback(coins, upgrades)
@@ -99,39 +129,48 @@ def _render_shop_surface(surface, font_title, font_medium, font_small, coins, up
     surface.fill((255, 255, 255))
     width = surface.get_width()
     render_items = [
-        _render_centered_item(font_title, '商城', 55, width),
-        _render_centered_item(font_medium, f'金币：{min(coins, 99999):05d}', 105, width),
-        _render_text_item(font_medium, '属性升级', (90, 150)),
-        _render_text_item(font_medium, '恐龙皮肤', (90, 310)),
-        _render_centered_item(font_small, '按 ESC 返回', 550, width),
+        _render_centered_item(font_title, '商城', 45, width),
+        _render_centered_item(font_medium, f'金币：{min(coins, 99999):05d}', 88, width),
+        _render_text_item(font_medium, '属性升级', (90, 125)),
+        _render_text_item(font_medium, '角色皮肤', (90, 255)),
+        _render_text_item(font_medium, '场景皮肤', (90, 455)),
+        _render_centered_item(font_small, '按 ESC 返回', 560, width),
     ]
 
-    y = 188
+    y = 162
     for key_label, item in (('1', UPGRADE_ITEMS[pygame.K_1]), ('2', UPGRADE_ITEMS[pygame.K_2]), ('3', UPGRADE_ITEMS[pygame.K_3])):
         owned = bool(upgrades.get(item['key'], 0))
         status = '已拥有' if owned else '购买'
         color = (46, 145, 70) if owned else (83, 83, 83)
-        line = f"[{key_label}] {item['name']} - {item['cost']} 金币 - {status}"
+        line = f"[{key_label}] {item['name']}  {item['cost']}金币  {status}"
         render_items.append(_render_text_item(font_small, line, (110, y), color))
-        render_items.append(_render_text_item(font_small, item['effect'], (650, y), (105, 105, 105)))
-        y += 32
+        render_items.append(_render_text_item(font_small, item['effect'], (560, y), (105, 105, 105)))
+        y += 30
 
-    y = 348
+    y = 292
     skin_rows = (
         ('4', SKIN_ITEMS[pygame.K_4]),
         ('5', SKIN_ITEMS[pygame.K_5]),
         ('6', SKIN_ITEMS[pygame.K_6]),
         ('7', SKIN_ITEMS[pygame.K_7]),
+        ('8', SKIN_ITEMS[pygame.K_8]),
     )
     for key_label, item in skin_rows:
         status = _skin_status(upgrades, item)
         color = (46, 145, 70) if status != '购买' else (83, 83, 83)
-        line = f"[{key_label}] {item['name']} - {item['cost_text']} - {status}"
+        line = f"[{key_label}] {item['name']}  {item['cost_text']}  {status}"
         render_items.append(_render_text_item(font_small, line, (110, y), color))
-        y += 32
+        y += 30
+
+    y = 492
+    for key_label, item in (('C', SCENE_SKIN_ITEMS[pygame.K_c]),):
+        status = _scene_skin_status(upgrades, item)
+        color = (46, 145, 70) if status != '购买' else (83, 83, 83)
+        line = f"[{key_label}] {item['name']}  {item['cost_text']}  {status}"
+        render_items.append(_render_text_item(font_small, line, (110, y), color))
 
     if message:
-        render_items.append(_render_centered_item(font_small, message, 505, width, message_color))
+        render_items.append(_render_centered_item(font_small, message, 535, width, message_color))
 
     for text_surface, rect in render_items:
         surface.blit(text_surface, rect)
@@ -203,6 +242,30 @@ def ShopInterface(screen, game_surface, cfg, coins, upgrades, sounds=None, save_
                         if sounds:
                             sounds['button'].play()
                     upgrades['equipped_skin'] = skin['key']
+                    _save_if_needed(save_callback, coins, upgrades)
+                    dirty = True
+
+                scene_skin = SCENE_SKIN_ITEMS.get(event.key)
+                if scene_skin:
+                    owned = _owns_scene_skin(upgrades, scene_skin)
+                    if not owned:
+                        if coins < scene_skin['cost']:
+                            message = '金币不足'
+                            message_color = (210, 60, 60)
+                            dirty = True
+                            continue
+                        coins -= scene_skin['cost']
+                        upgrades[scene_skin['owned_key']] = 1
+                        message = f"购买成功，已装备：{scene_skin['name']}"
+                        message_color = (46, 145, 70)
+                        if sounds:
+                            sounds['point'].play()
+                    else:
+                        message = f"已装备：{scene_skin['name']}"
+                        message_color = (46, 145, 70)
+                        if sounds:
+                            sounds['button'].play()
+                    upgrades[scene_skin['equip_key']] = scene_skin['key']
                     _save_if_needed(save_callback, coins, upgrades)
                     dirty = True
 
