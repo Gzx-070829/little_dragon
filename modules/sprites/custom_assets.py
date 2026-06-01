@@ -5,6 +5,9 @@ import pygame
 import core
 
 
+_PROCESSED_IMAGE_CACHE = {}
+
+
 def _matches_background(color, bg, tolerance):
     r, g, b = color[:3]
     if bg == 'white':
@@ -75,10 +78,17 @@ def scale_to_fit(surface, max_width=None, max_height=None, target_height=None):
     new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
     if new_size == (width, height):
         return surface.copy()
-    return pygame.transform.smoothscale(surface, new_size)
+    return pygame.transform.scale(surface, new_size)
 
 
 def load_processed_custom_image(path, bg='white', tolerance=30):
+    cache_key = (path, bg, int(tolerance))
+    cached = _PROCESSED_IMAGE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     image = pygame.image.load(path).convert_alpha()
     image = remove_edge_background(image, bg=bg, tolerance=tolerance)
-    return trim_transparent_surface(image)
+    image = trim_transparent_surface(image)
+    _PROCESSED_IMAGE_CACHE[cache_key] = image
+    return image

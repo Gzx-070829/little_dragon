@@ -112,7 +112,7 @@ class Cloud(pygame.sprite.Sprite):
 
 
 class Coin(pygame.sprite.Sprite):
-    """金币/收集物精灵，优先使用缓存后的雪糕图片，失败时回退圆形金币。"""
+    """金币/收集物精灵，默认圆形金币，可装备雪糕金币皮肤。"""
 
     _IMAGE_CACHE = {}
 
@@ -135,7 +135,10 @@ class Coin(pygame.sprite.Sprite):
         return image
 
     @classmethod
-    def _get_image(cls, radius):
+    def _get_image(cls, radius, skin='default'):
+        if skin != 'icecream':
+            return cls._get_fallback_image(radius)
+
         cache_key = ('icecream', core.IMAGE_PATHS.get('custom_icecream_coin'), radius)
         cached = cls._IMAGE_CACHE.get(cache_key)
         if cached is not None:
@@ -155,15 +158,17 @@ class Coin(pygame.sprite.Sprite):
         cls._IMAGE_CACHE[cache_key] = image
         return image
 
-    def __init__(self, position, speed=10, radius=14, **kwargs):
+    def __init__(self, position, speed=10, radius=14, skin='default', **kwargs):
         """
         Args:
             position (tuple): 金币初始中心点坐标 (centerx, centery)
             speed (int): 从右向左移动的速度，通常与 game_speed 一致
             radius (int): 金币半径
+            skin (str): 当前金币皮肤，default/icecream
         """
         super().__init__()
-        self.image = self._get_image(radius)
+        self.skin = skin if skin == 'icecream' else 'default'
+        self.image = self._get_image(radius, self.skin)
         self.rect = self.image.get_rect(center=position)
         self.mask = pygame.mask.from_surface(self.image)
         self.speed = -abs(speed)
