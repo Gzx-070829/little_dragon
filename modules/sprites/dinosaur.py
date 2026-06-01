@@ -51,7 +51,7 @@ def load_runner_sheet_frames(heights):
     for row in range(rows):
         for col in range(columns):
             rect = pygame.Rect(col * cell_width, row * cell_height, cell_width, cell_height)
-            rect.clip_ip(sheet.get_rect())
+            rect = rect.clip(sheet.get_rect())
             if rect.width <= 0 or rect.height <= 0:
                 continue
             cell = sheet.subsurface(rect).copy()
