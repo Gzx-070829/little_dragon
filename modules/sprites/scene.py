@@ -67,23 +67,64 @@ class Cloud(pygame.sprite.Sprite):
             self.kill()
 
 
+class Coin(pygame.sprite.Sprite):
+    """像素风金币精灵，不依赖额外图片资源。"""
+
+    def __init__(self, position, speed=10, radius=14, **kwargs):
+        """
+        Args:
+            position (tuple): 金币初始中心点坐标 (centerx, centery)
+            speed (int): 从右向左移动的速度，通常与 game_speed 一致
+            radius (int): 金币半径
+        """
+        super().__init__()
+        size = radius * 2 + 4
+        self.image = pygame.Surface((size, size), pygame.SRCALPHA)
+        center = (size // 2, size // 2)
+
+        # 用简单图形画出金币，避免新增或替换图片资源。
+        pygame.draw.circle(self.image, (178, 111, 0), center, radius + 1)
+        pygame.draw.circle(self.image, (255, 205, 55), center, radius)
+        pygame.draw.circle(self.image, (255, 235, 120), (center[0] - 4, center[1] - 5), radius // 3)
+        pygame.draw.rect(self.image, (204, 132, 0), (center[0] - 2, center[1] - 8, 4, 16))
+
+        self.rect = self.image.get_rect(center=position)
+        self.mask = pygame.mask.from_surface(self.image)
+        self.speed = -abs(speed)
+
+    def set_speed(self, speed):
+        """同步金币移动速度。"""
+        self.speed = -abs(speed)
+
+    def update(self):
+        self.rect.x += self.speed
+        if self.rect.right < 0:
+            self.kill()
+
+    def draw(self, screen):
+        screen.blit(self.image, self.rect)
+
+
 class Scoreboard(pygame.sprite.Sprite):
     """计分板类"""
 
-    def __init__(self, score, fontpath, position, is_highest=False):
+    def __init__(self, score, fontpath, position, is_highest=False, label=None):
         super().__init__()
         self.font = pygame.font.Font(fontpath, 30)  # 字体大小
         self.position = position
         self.is_highest = is_highest
         self.score = score
+        self.label = label
         self.color = (83, 83, 83)  # 深灰色字体
 
     def draw(self, screen):
         # 补零到 5 位：00000
         score_str = str(self.score).zfill(5)
 
-        # 是最高分就加 HI
-        if self.is_highest:
+        # 是最高分就加 HI；金币等其他数值可传入 label。
+        if self.label:
+            text = f"{self.label} {score_str}"
+        elif self.is_highest:
             text = f"HI {score_str}"
         else:
             text = score_str

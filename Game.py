@@ -11,8 +11,12 @@ from modules import *
 DB_PATH = os.path.join(core.BASE_DIR, 'history.db')
 
 
+def _default_upgrades():
+    return {'jump_boost': 0, 'slow_start': 0}
+
+
 def init_database():
-    """初始化分数数据库并返回连接和历史最高分。"""
+    """初始化数据库并返回连接、历史最高分、金币和升级状态。"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -21,6 +25,22 @@ def init_database():
             unix_timestamp INTEGER PRIMARY KEY,
             score INTEGER NOT NULL
         );
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS player_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            coins INTEGER NOT NULL DEFAULT 0,
+            jump_boost INTEGER NOT NULL DEFAULT 0,
+            slow_start INTEGER NOT NULL DEFAULT 0
+        );
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO player_state (id, coins, jump_boost, slow_start)
+        VALUES (1, 0, 0, 0);
         """
     )
     conn.commit()
@@ -34,7 +54,57 @@ def init_database():
     except Exception as e:
         print(f"读取最高分失败: {e}")
 
-    return conn, highest_score
+    coins, upgrades = load_player_state(conn)
+    return conn, highest_score, coins, upgrades
+
+
+def load_player_state(conn):
+    """读取金币和已购买升级。"""
+    upgrades = _default_upgrades()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT coins, jump_boost, slow_start FROM player_state WHERE id = 1;"
+        )
+        row = cursor.fetchone()
+        if row is None:
+            cursor.execute(
+                """
+                INSERT INTO player_state (id, coins, jump_boost, slow_start)
+                VALUES (1, 0, 0, 0);
+                """
+            )
+            conn.commit()
+            return 0, upgrades
+
+        coins, jump_boost, slow_start = row
+        upgrades['jump_boost'] = int(jump_boost)
+        upgrades['slow_start'] = int(slow_start)
+        return int(coins), upgrades
+    except Exception as e:
+        print(f"读取玩家状态失败: {e}")
+        return 0, upgrades
+
+
+def save_player_state(conn, coins, upgrades):
+    """保存金币和升级状态。"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE player_state
+            SET coins = ?, jump_boost = ?, slow_start = ?
+            WHERE id = 1;
+            """,
+            (
+                int(coins),
+                int(upgrades.get('jump_boost', 0)),
+                int(upgrades.get('slow_start', 0)),
+            )
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"保存玩家状态失败: {e}")
 
 
 def save_score(conn, score):
@@ -50,16 +120,36 @@ def save_score(conn, score):
         print(f"保存分数失败: {e}")
 
 
-def main(conn, highest_score):
+def open_shop(screen, sounds, coins, upgrades, conn):
+    """打开商城并立即保存购买结果。"""
+    coins, upgrades = ShopInterface(screen, core, coins, upgrades, sounds)
+    save_player_state(conn, coins, upgrades)
+    return coins, upgrades
+
+
+def apply_speed_to_sprites(game_speed, ground, cactus_sprites_group, ptera_sprites_group, coin_sprites_group):
+    """把当前游戏速度同步给所有横向移动对象。"""
+    ground.speed = -game_speed
+    for cactus in cactus_sprites_group:
+        cactus.speed = -game_speed
+    for ptera in ptera_sprites_group:
+        ptera.speed = -game_speed
+    for coin in coin_sprites_group:
+        coin.set_speed(game_speed)
+
+
+def main(conn, highest_score, coins, upgrades):
     """
     游戏主函数
 
     Args:
         conn: SQLite 数据库连接
         highest_score (int): 历史最高分
+        coins (int): 玩家持有金币
+        upgrades (dict): 已购买升级
 
     Returns:
-        tuple: (是否继续游戏, 当前最高分)
+        tuple: (是否继续游戏, 当前最高分, 当前金币, 当前升级)
     """
     pygame.init()
     screen = pygame.display.set_mode(core.SCREENSIZE)
@@ -69,28 +159,41 @@ def main(conn, highest_score):
     for key, path in core.AUDIO_PATHS.items():
         sounds[key] = pygame.mixer.Sound(path)
 
-    if not GameStartInterface(screen, sounds, core):
-        return False, highest_score
+    while True:
+        start_action = GameStartInterface(screen, sounds, core, coins)
+        if start_action == 'start':
+            break
+        if start_action == 'shop':
+            coins, upgrades = open_shop(screen, sounds, coins, upgrades, conn)
+            continue
+        return False, highest_score, coins, upgrades
 
     score = 0
     dino = Dinosaur(core.IMAGE_PATHS['dino'], position=(40, core.GROUND_Y))
+    if upgrades.get('jump_boost', 0):
+        dino.speed = 21
+
     ground = Ground(core.IMAGE_PATHS['ground'], position=(0, core.GROUND_Y - 12))
 
     cloud_sprites_group = pygame.sprite.Group()
     cactus_sprites_group = pygame.sprite.Group()
     ptera_sprites_group = pygame.sprite.Group()
+    coin_sprites_group = pygame.sprite.Group()
 
     add_obstacle_timer = 0
     next_obstacle_gap = random.randint(75, 140)
+    add_coin_timer = 0
+    next_coin_gap = random.randint(100, 180)
     score_timer = 0
     clock = pygame.time.Clock()
-    game_speed = 10
-    ground.speed = -game_speed
+    game_speed = 8 if upgrades.get('slow_start', 0) else 10
+    apply_speed_to_sprites(game_speed, ground, cactus_sprites_group, ptera_sprites_group, coin_sprites_group)
 
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return False, highest_score
+                save_player_state(conn, coins, upgrades)
+                return False, highest_score, coins, upgrades
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE or event.key == pygame.K_UP:
@@ -124,11 +227,25 @@ def main(conn, highest_score):
                 ptera = Ptera(core.IMAGE_PATHS['ptera'], position=(x, ptera_y), speed=game_speed)
                 ptera_sprites_group.add(ptera)
 
+        add_coin_timer += 1
+        if add_coin_timer > next_coin_gap:
+            add_coin_timer = 0
+            next_coin_gap = random.randint(100, 190)
+            x = core.SCREENSIZE[0] + 90
+            coin_y = random.choice([
+                core.GROUND_Y - 30,
+                core.GROUND_Y - 30,
+                core.GROUND_Y - 145,
+                core.GROUND_Y - 205,
+            ])
+            coin_sprites_group.add(Coin(position=(x, coin_y), speed=game_speed))
+
         dino.update()
         ground.update()
         cloud_sprites_group.update()
         cactus_sprites_group.update()
         ptera_sprites_group.update()
+        coin_sprites_group.update()
 
         score_timer += 1
         if score_timer > 10:
@@ -138,20 +255,38 @@ def main(conn, highest_score):
                 sounds['point'].play()
             if score % 500 == 0:
                 game_speed = min(game_speed + 1, 18)
-                ground.speed = -game_speed
-                for cactus in cactus_sprites_group:
-                    cactus.speed = -game_speed
-                for ptera in ptera_sprites_group:
-                    ptera.speed = -game_speed
+                apply_speed_to_sprites(
+                    game_speed,
+                    ground,
+                    cactus_sprites_group,
+                    ptera_sprites_group,
+                    coin_sprites_group,
+                )
 
-        if pygame.sprite.spritecollide(dino, cactus_sprites_group, True, pygame.sprite.collide_mask) or \
-           pygame.sprite.spritecollide(dino, ptera_sprites_group, True, pygame.sprite.collide_mask):
+        hit_cactus = any(
+            pygame.sprite.collide_mask(dino, cactus) for cactus in cactus_sprites_group
+        )
+        hit_ptera = any(
+            pygame.sprite.collide_mask(dino, ptera) for ptera in ptera_sprites_group
+        )
+        if hit_cactus or hit_ptera:
             dino.die(sounds)
+
+        collected_coins = pygame.sprite.spritecollide(
+            dino,
+            coin_sprites_group,
+            True,
+            pygame.sprite.collide_mask,
+        )
+        if collected_coins:
+            coins += len(collected_coins)
+            sounds['point'].play()
 
         cloud_sprites_group.draw(screen)
         ground.draw(screen)
         cactus_sprites_group.draw(screen)
         ptera_sprites_group.draw(screen)
+        coin_sprites_group.draw(screen)
         dino.draw(screen)
 
         score_board = Scoreboard(score, core.FONT_PATHS['joystix'], (core.SCREENSIZE[0] - 150, 30))
@@ -161,29 +296,48 @@ def main(conn, highest_score):
             (core.SCREENSIZE[0] - 350, 30),
             is_highest=True
         )
+        coin_board = Scoreboard(coins, core.FONT_PATHS['joystix'], (30, 30), label='COIN')
         score_board.draw(screen)
         highest_board.draw(screen)
+        coin_board.draw(screen)
 
         pygame.display.update()
         clock.tick(core.FPS)
 
         if dino.is_dead:
             save_score(conn, score)
+            save_player_state(conn, coins, upgrades)
             is_new_record = False
             if score > highest_score:
                 highest_score = score
                 is_new_record = True
             break
 
-    return GameEndInterface(screen, core, score, highest_score, is_new_record, sounds), highest_score
+    while True:
+        end_action = GameEndInterface(
+            screen,
+            core,
+            score,
+            highest_score,
+            is_new_record,
+            sounds,
+            coins,
+        )
+        if end_action == 'restart':
+            return True, highest_score, coins, upgrades
+        if end_action == 'shop':
+            coins, upgrades = open_shop(screen, sounds, coins, upgrades, conn)
+            continue
+        return False, highest_score, coins, upgrades
 
 
 if __name__ == '__main__':
-    conn, highest_score = init_database()
+    conn, highest_score, coins, upgrades = init_database()
     try:
         while True:
-            flag, highest_score = main(conn, highest_score)
+            flag, highest_score, coins, upgrades = main(conn, highest_score, coins, upgrades)
             if not flag:
+                save_player_state(conn, coins, upgrades)
                 break
     finally:
         conn.close()
