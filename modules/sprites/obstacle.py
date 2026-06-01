@@ -29,7 +29,7 @@ def scale_to_height(surface, height):
 class Cactus(pygame.sprite.Sprite):
     """仙人掌障碍物类"""
 
-    def __init__(self, imagepaths, position=(1200, core.GROUND_Y), heights=None, speed=10, **kwargs):
+    def __init__(self, imagepaths, position=None, heights=None, speed=10, **kwargs):
         """
         初始化仙人掌障碍物
         Args:
@@ -39,6 +39,8 @@ class Cactus(pygame.sprite.Sprite):
             speed (int): 从右向左移动的速度
         """
         super().__init__()
+        if position is None:
+            position = (core.SCREENSIZE[0], core.GROUND_Y)
         if heights is None:
             heights = (118, 82)
 
@@ -76,7 +78,7 @@ class Cactus(pygame.sprite.Sprite):
 class Ptera(pygame.sprite.Sprite):
     """翼龙障碍物类"""
 
-    def __init__(self, imagepath, position=(1200, core.GROUND_Y - 100), height=70, speed=10, **kwargs):
+    def __init__(self, imagepath, position=None, height=70, speed=10, **kwargs):
         """
         初始化翼龙障碍物
         Args:
@@ -86,6 +88,8 @@ class Ptera(pygame.sprite.Sprite):
             speed (int): 从右向左移动的速度
         """
         super().__init__()
+        if position is None:
+            position = (core.SCREENSIZE[0], core.GROUND_Y - 100)
 
         self.images = []
         image = pygame.image.load(imagepath).convert_alpha()

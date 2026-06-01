@@ -13,7 +13,7 @@ def GameEndInterface(screen, cfg, score, highest_score, is_new_record, sounds, c
     """
     restart_img = pygame.image.load(cfg.IMAGE_PATHS['replay']).convert_alpha()
     restart_img = pygame.transform.scale(restart_img, (200, 200))
-    restart_rect = restart_img.get_rect(center=(screen.get_width() // 2, screen.get_height() // 2 + 150))
+    restart_rect = restart_img.get_rect(center=(screen.get_width() // 2, int(screen.get_height() * 0.72)))
 
     font_large = pygame.font.Font(cfg.FONT_PATHS['joystix'], 50)
     font_small = pygame.font.Font(cfg.FONT_PATHS['joystix'], 22)
@@ -21,25 +21,25 @@ def GameEndInterface(screen, cfg, score, highest_score, is_new_record, sounds, c
     font_new = pygame.font.Font(cfg.FONT_PATHS['joystix'], 50)
 
     game_over_text = font_large.render("GAME OVER", True, (83, 83, 83))
-    game_over_rect = game_over_text.get_rect(center=(screen.get_width() // 2, 180))
+    game_over_rect = game_over_text.get_rect(center=(screen.get_width() // 2, int(screen.get_height() * 0.24)))
 
     tip_text = font_small.render("SPACE/UP: RESTART    S: SHOP    ESC: QUIT", True, (83, 83, 83))
-    tip_rect = tip_text.get_rect(center=(screen.get_width() // 2, 550))
+    tip_rect = tip_text.get_rect(center=(screen.get_width() // 2, int(screen.get_height() * 0.92)))
 
-    score_text = font_score.render(f"SCORE: {score}", True, (83, 83, 83))
-    score_rect = score_text.get_rect(center=(screen.get_width() // 2, 260))
+    score_text = font_score.render(f"SCORE: {min(score, 99999):05d}", True, (83, 83, 83))
+    score_rect = score_text.get_rect(center=(screen.get_width() // 2, int(screen.get_height() * 0.36)))
 
-    highest_text = font_score.render(f"HIGHEST: {highest_score}", True, (83, 83, 83))
-    highest_rect = highest_text.get_rect(center=(screen.get_width() // 2, 300))
+    highest_text = font_score.render(f"HIGHEST: {min(highest_score, 99999):05d}", True, (83, 83, 83))
+    highest_rect = highest_text.get_rect(center=(screen.get_width() // 2, int(screen.get_height() * 0.43)))
 
-    coin_text = font_small.render(f"COIN {str(coins).zfill(5)}", True, (83, 83, 83))
-    coin_rect = coin_text.get_rect(center=(screen.get_width() // 2, 380))
+    coin_text = font_small.render(f"COIN {min(coins, 99999):05d}", True, (83, 83, 83))
+    coin_rect = coin_text.get_rect(center=(screen.get_width() // 2, int(screen.get_height() * 0.58)))
 
     new_record_text = None
     new_record_rect = None
     if is_new_record:
         new_record_text = font_new.render("NEW RECORD!", True, (255, 60, 60))
-        new_record_rect = new_record_text.get_rect(center=(screen.get_width() // 2, 340))
+        new_record_rect = new_record_text.get_rect(center=(screen.get_width() // 2, int(screen.get_height() * 0.50)))
 
     clock = pygame.time.Clock()
     while True:

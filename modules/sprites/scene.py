@@ -5,42 +5,37 @@ import core
 class Ground(pygame.sprite.Sprite):
     """地面类（无限滚动）"""
 
-    def __init__(self, imagepath, position=(0, core.GROUND_Y), **kwargs):
+    def __init__(self, imagepath, position=None, **kwargs):
         super().__init__()
-        # 加载地面图片
-        self.image = pygame.image.load(imagepath).convert_alpha()
+        if position is None:
+            position = (0, core.GROUND_Y)
 
-        sw, sh = core.SCREENSIZE
-
-        # 缩放到屏幕宽度，并让地面图片上沿对齐统一的 GROUND_Y 地面表面。
-        self.image = pygame.transform.scale(self.image, (sw, 70))
-        self.rect = self.image.get_rect()
-        self.rect.topleft = position
-
-        # 创建第二个地面实现无缝滚动
-        self.rect2 = self.image.get_rect()
-        self.rect2.left = self.rect.right  # 放在第一个地面右边紧挨着
-        self.rect2.bottom = self.rect.bottom
-
+        original_image = pygame.image.load(imagepath).convert_alpha()
+        ground_height = max(70, core.SCREENSIZE[1] - core.GROUND_Y)
+        tile_width = max(1, original_image.get_width())
+        tile_height = max(1, original_image.get_height())
+        scaled_width = max(1, int(tile_width * ground_height / tile_height))
+        self.image = pygame.transform.scale(
+            original_image,
+            (scaled_width, ground_height),
+        )
+        self.rect = self.image.get_rect(topleft=position)
         self.speed = -10  # 地面向左移动，主循环会同步为当前 game_speed
 
     def update(self):
-        # 两个地面同时向左移动
         self.rect.x += self.speed
-        self.rect2.x += self.speed
-
-        # 当第一个地面完全移出屏幕左侧，立刻放到第二个地面右边
-        if self.rect.right < 0:
-            self.rect.left = self.rect2.right
-
-        # 当第二个地面完全移出屏幕左侧，立刻放到第一个地面右边
-        if self.rect2.right < 0:
-            self.rect2.left = self.rect.right
+        image_width = self.image.get_width()
+        while self.rect.right <= 0:
+            self.rect.left += image_width
 
     def draw(self, screen):
-        # 绘制两个地面
-        screen.blit(self.image, self.rect)
-        screen.blit(self.image, self.rect2)
+        x = self.rect.left
+        while x > 0:
+            x -= self.image.get_width()
+
+        while x < core.SCREENSIZE[0]:
+            screen.blit(self.image, (x, self.rect.top))
+            x += self.image.get_width()
 
 
 class Cloud(pygame.sprite.Sprite):

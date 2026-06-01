@@ -19,7 +19,7 @@ SHOP_ITEMS = {
 
 def _draw_centered(screen, font, text, y, color=(83, 83, 83)):
     surface = font.render(text, True, color)
-    rect = surface.get_rect(center=(screen.get_width() // 2, y))
+    rect = surface.get_rect(center=(screen.get_width() // 2, int(y)))
     screen.blit(surface, rect)
 
 
@@ -75,20 +75,20 @@ def ShopInterface(screen, cfg, coins, upgrades, sounds=None):
                             sounds['point'].play()
 
         screen.fill((255, 255, 255))
-        _draw_centered(screen, font_title, 'SHOP', 90)
-        _draw_centered(screen, font_medium, f'COINS: {str(coins).zfill(5)}', 155)
+        _draw_centered(screen, font_title, 'SHOP', screen.get_height() * 0.15)
+        _draw_centered(screen, font_medium, f'COINS: {min(coins, 99999):05d}', screen.get_height() * 0.26)
 
-        y = 245
+        y = screen.get_height() * 0.41
         for key_label, item in (('1', SHOP_ITEMS[pygame.K_1]), ('2', SHOP_ITEMS[pygame.K_2])):
             owned = bool(upgrades.get(item['key'], 0))
             status = 'OWNED' if owned else f"{item['cost']} COINS"
             color = (46, 145, 70) if owned else (83, 83, 83)
             _draw_centered(screen, font_medium, f"PRESS {key_label}: {item['name']} - {status}", y, color)
             _draw_centered(screen, font_small, item['effect'], y + 34, (105, 105, 105))
-            y += 95
+            y += screen.get_height() * 0.16
 
         if message:
-            _draw_centered(screen, font_small, message, 455, message_color)
-        _draw_centered(screen, font_small, 'ESC: RETURN', 520)
+            _draw_centered(screen, font_small, message, screen.get_height() * 0.76, message_color)
+        _draw_centered(screen, font_small, 'ESC: RETURN', screen.get_height() * 0.87)
 
         pygame.display.update()

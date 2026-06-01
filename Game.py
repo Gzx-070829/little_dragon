@@ -160,6 +160,45 @@ def next_obstacle_interval(score):
     return random.randint(75 - difficulty_steps * 2, 140 - difficulty_steps * 4)
 
 
+def create_screen():
+    """Create the pygame display and refresh screen-dependent config."""
+    if core.FULLSCREEN:
+        info = pygame.display.Info()
+        size = (info.current_w, info.current_h)
+        screen = pygame.display.set_mode(size, pygame.FULLSCREEN)
+    else:
+        screen = pygame.display.set_mode(core.DEFAULT_SCREENSIZE)
+
+    core.set_screen_size(screen.get_size())
+    return screen
+
+
+def draw_hud(screen, font, coins, highest_score, score):
+    """Draw stable HUD text using rect alignment instead of fixed x positions."""
+    margin = 50
+    hud_y = 90
+    line_gap = 38
+
+    safe_coins = max(0, min(int(coins), 99999))
+    safe_highest = max(0, min(int(highest_score), 99999))
+    safe_score = max(0, min(int(score), 99999))
+
+    coin_surface = font.render(f"COIN {safe_coins:05d}", True, core.BLACK)
+    coin_rect = coin_surface.get_rect(topleft=(margin, hud_y))
+
+    hi_surface = font.render(f"HI {safe_highest:05d}", True, core.BLACK)
+    hi_rect = hi_surface.get_rect(topright=(core.SCREENSIZE[0] - margin, hud_y))
+
+    score_surface = font.render(f"SCORE {safe_score:05d}", True, core.BLACK)
+    score_rect = score_surface.get_rect(
+        topright=(core.SCREENSIZE[0] - margin, hud_y + line_gap)
+    )
+
+    screen.blit(coin_surface, coin_rect)
+    screen.blit(hi_surface, hi_rect)
+    screen.blit(score_surface, score_rect)
+
+
 def main(conn, highest_score, coins, upgrades):
     """
     游戏主函数
@@ -174,7 +213,7 @@ def main(conn, highest_score, coins, upgrades):
         tuple: (是否继续游戏, 当前最高分, 当前金币, 当前升级)
     """
     pygame.init()
-    screen = pygame.display.set_mode(core.SCREENSIZE)
+    screen = create_screen()
     pygame.display.set_caption('Dino Rush')
 
     sounds = {}
@@ -208,6 +247,7 @@ def main(conn, highest_score, coins, upgrades):
     next_coin_gap = random.randint(100, 180)
     score_timer = 0
     clock = pygame.time.Clock()
+    hud_font = pygame.font.Font(core.FONT_PATHS['joystix'], 24)
     current_speed = get_current_speed(score, upgrades)
     apply_speed_to_sprites(
         current_speed,
@@ -224,6 +264,9 @@ def main(conn, highest_score, coins, upgrades):
                 return False, highest_score, coins, upgrades
 
             if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    save_player_state(conn, coins, upgrades)
+                    return False, highest_score, coins, upgrades
                 if event.key == pygame.K_SPACE or event.key == pygame.K_UP:
                     dino.jump(sounds)
                 if event.key == pygame.K_DOWN or event.key == pygame.K_LSHIFT:
@@ -252,7 +295,7 @@ def main(conn, highest_score, coins, upgrades):
         screen.fill(core.BACKGROUND_COLOR)
 
         if len(cloud_sprites_group) < 5 and random.randint(0, 600) == 1:
-            x = core.SCREENSIZE[0] + 100
+            x = core.SCREENSIZE[0] + random.randint(80, 180)
             y = random.randint(50, 200)
             cloud = Cloud(core.IMAGE_PATHS['cloud'], position=(x, y))
             cloud_sprites_group.add(cloud)
@@ -261,7 +304,7 @@ def main(conn, highest_score, coins, upgrades):
         if add_obstacle_timer > next_obstacle_gap:
             add_obstacle_timer = 0
             next_obstacle_gap = next_obstacle_interval(score)
-            x = core.SCREENSIZE[0] + 100
+            x = core.SCREENSIZE[0] + random.randint(80, 180)
 
             if random.randint(0, 100) < 80:
                 cactus = Cactus(
@@ -283,7 +326,7 @@ def main(conn, highest_score, coins, upgrades):
         if add_coin_timer > next_coin_gap:
             add_coin_timer = 0
             next_coin_gap = random.randint(100, 190)
-            x = core.SCREENSIZE[0] + 90
+            x = core.SCREENSIZE[0] + random.randint(70, 170)
             coin_y = random.choice([
                 core.GROUND_Y - 35,
                 core.GROUND_Y - 35,
@@ -324,27 +367,7 @@ def main(conn, highest_score, coins, upgrades):
         coin_sprites_group.draw(screen)
         dino.draw(screen)
 
-        coin_board = Scoreboard(
-            coins,
-            core.FONT_PATHS['joystix'],
-            (50, 90),
-            prefix='COIN',
-        )
-        highest_board = Scoreboard(
-            min(highest_score, 99999),
-            core.FONT_PATHS['joystix'],
-            (core.SCREENSIZE[0] - 360, 90),
-            prefix='HI',
-        )
-        score_board = Scoreboard(
-            score,
-            core.FONT_PATHS['joystix'],
-            (core.SCREENSIZE[0] - 190, 90),
-            prefix='SCORE',
-        )
-        score_board.draw(screen)
-        highest_board.draw(screen)
-        coin_board.draw(screen)
+        draw_hud(screen, hud_font, coins, highest_score, score)
 
         pygame.display.update()
         clock.tick(core.FPS)
