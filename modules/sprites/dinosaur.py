@@ -1,7 +1,7 @@
 import pygame
 
 import core
-from .custom_assets import remove_edge_background, scale_to_fit, trim_transparent_surface
+from .custom_assets import remove_edge_background, trim_transparent_surface
 
 
 def trim_surface(surface):
@@ -32,48 +32,55 @@ def _make_duck_frame(frame, target_height):
 _RUNNER_SHEET_CACHE = {}
 
 
+def _scale_runner_frame(surface, target_height):
+    """Scale one runner frame with pixel-art friendly nearest-neighbor scaling."""
+    width, height = surface.get_size()
+    if height <= 0:
+        return surface.copy()
+    target_width = max(1, int(width * target_height / height))
+    return pygame.transform.scale(surface, (target_width, target_height))
+
+
 def load_runner_sheet_frames(heights):
-    """Load, background-strip, slice and cache the custom runner sprite sheet."""
-    target_height = max(100, min(115, int(heights[0])))
+    """Load, cell-slice, background-strip, trim, scale and cache runner frames."""
+    target_height = 110
     cache_key = ('runner', core.IMAGE_PATHS['custom_runner_sheet'], target_height, int(heights[1]))
     cached = _RUNNER_SHEET_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
     sheet = pygame.image.load(core.IMAGE_PATHS['custom_runner_sheet']).convert_alpha()
-    sheet = remove_edge_background(sheet, bg='white', tolerance=34)
     sheet_width, sheet_height = sheet.get_size()
     columns, rows = 6, 2
-    cell_width = max(1, sheet_width // columns)
-    cell_height = max(1, sheet_height // rows)
+    cell_width = sheet_width // columns
+    cell_height = sheet_height // rows
     frames = []
+
+    if cell_width <= 0 or cell_height <= 0:
+        raise ValueError(f'runner_sheet 尺寸无效: {sheet_width}x{sheet_height}')
 
     for row in range(rows):
         for col in range(columns):
+            frame_index = row * columns + col
             rect = pygame.Rect(col * cell_width, row * cell_height, cell_width, cell_height)
-            rect = rect.clip(sheet.get_rect())
-            if rect.width <= 0 or rect.height <= 0:
-                continue
             cell = sheet.subsurface(rect).copy()
-            # Process every sprite-sheet cell again so white backgrounds between cells are removed.
-            cell = remove_edge_background(cell, bg='white', tolerance=34)
+            cell = remove_edge_background(cell, bg='white', tolerance=19)
             cell = trim_transparent_surface(cell)
             bounds = cell.get_bounding_rect()
-            if bounds.width <= 1 or bounds.height <= 1:
+            if bounds.width <= 2 or bounds.height <= 2:
+                print(f"跳过无效 runner 帧 index={frame_index}")
                 continue
-            frames.append(scale_to_fit(cell, target_height=target_height))
+            frames.append(_scale_runner_frame(cell, target_height))
 
-    if len(frames) < 2:
+    if len(frames) < 6:
         raise ValueError(f'runner_sheet 可用帧过少: {len(frames)}')
 
     run_frames = frames[:12]
-    while len(run_frames) < 6:
-        run_frames.append(frames[len(run_frames) % len(frames)].copy())
-
     duck_frame = _make_duck_frame(run_frames[0], heights[1])
     images = run_frames + [duck_frame]
     _RUNNER_SHEET_CACHE[cache_key] = images
-    print(f"奔跑人物皮肤加载成功，帧数：{len(run_frames)}")
+    print(f"加载奔跑人物皮肤成功，帧数：{len(run_frames)}")
+    print(f"runner frame sizes: {[frame.get_size() for frame in run_frames]}")
     return images
 
 
@@ -152,7 +159,7 @@ class Dinosaur(pygame.sprite.Sprite):
     def can_load_runner_skin(cls):
         try:
             frames = load_runner_sheet_frames((110, 78))
-            return len(frames) >= 2
+            return len(frames) >= 7
         except Exception as e:
             print(f"奔跑人物皮肤测试加载失败: {e}")
             return False
@@ -187,7 +194,7 @@ class Dinosaur(pygame.sprite.Sprite):
         self.mask = pygame.mask.from_surface(self.image)
 
         self.init_position = position
-        self.refresh_rate = 5
+        self.refresh_rate = 4 if self.runner_skin_loaded else 5
         self.refresh_counter = 0
         self.speed = 18
         self.gravity = 0.7
@@ -228,8 +235,16 @@ class Dinosaur(pygame.sprite.Sprite):
 
     def loadImage(self):
         """加载当前帧的图片并更新碰撞遮罩。"""
+        old_bottom = self.rect.bottom
+        old_left = self.rect.left
+        old_midbottom = self.rect.midbottom
         self.image = self.images[self.image_idx]
-        self.rect = self.image.get_rect(midbottom=self.rect.midbottom)
+        if self.runner_skin_loaded:
+            self.rect = self.image.get_rect()
+            self.rect.left = old_left
+            self.rect.bottom = old_bottom
+        else:
+            self.rect = self.image.get_rect(midbottom=old_midbottom)
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self):
@@ -246,6 +261,12 @@ class Dinosaur(pygame.sprite.Sprite):
                 self.rect.bottom = self.init_position[1]
                 self.is_jumping = False
                 self.movement[1] = 0
+
+        if self.runner_skin_loaded and self.is_jumping:
+            if self.image_idx != 0:
+                self.image_idx = 0
+                self.loadImage()
+            return
 
         self.refresh_counter += 1
         if self.refresh_counter >= self.refresh_rate:
