@@ -280,8 +280,16 @@ def apply_coin_magnet(dino, coin_sprites_group):
 
 
 def create_screen():
-    """创建默认可缩放窗口，游戏内部仍使用固定逻辑分辨率。"""
-    return pygame.display.set_mode(core.WINDOW_SIZE, pygame.RESIZABLE)
+    """创建默认可缩放窗口，优先用 SDL 缩放降低每帧 CPU 压力。"""
+    flags = pygame.RESIZABLE
+    if core.USE_SDL_SCALED:
+        flags |= pygame.SCALED
+    try:
+        return pygame.display.set_mode(core.LOGICAL_SIZE, flags)
+    except pygame.error as e:
+        print(f"[PERF] pygame.SCALED 不可用，回退到手动 scale: {e}")
+        core.USE_SDL_SCALED = False
+        return pygame.display.set_mode(core.WINDOW_SIZE, pygame.RESIZABLE)
 
 
 def draw_hud(game_surface, font, coins, highest_score, score):
@@ -309,6 +317,52 @@ def draw_hud(game_surface, font, coins, highest_score, score):
     game_surface.blit(hi_surface, hi_rect)
     game_surface.blit(score_surface, score_rect)
 
+
+
+class PerfMonitor:
+    """Low-frequency FPS logger; avoids spamming stdout."""
+
+    def __init__(self, label):
+        self.label = label
+        self.last_log = time.monotonic()
+
+    def tick(self, clock, state=None):
+        now = time.monotonic()
+        if now - self.last_log < 2.0:
+            return
+        self.last_log = now
+        fps = clock.get_fps()
+        parts = [f"[PERF] {self.label} fps={fps:.1f}"]
+        if state is not None:
+            counts = {
+                'clouds': len(state.get('clouds', ())),
+                'coins': len(state.get('coins', ())),
+                'cactus': len(state.get('cacti', ())),
+                'ptera': len(state.get('pteras', ())),
+            }
+            if fps < 30:
+                parts.extend(f"{key}={value}" for key, value in counts.items())
+            else:
+                parts.append(f"sprites={sum(counts.values()) + 2}")
+        print(' '.join(parts))
+
+
+class TextLinesCache:
+    """Cache groups of rendered text lines until their content changes."""
+
+    def __init__(self, font, color=core.BLACK):
+        self.font = font
+        self.color = color
+        self.key = None
+        self.items = []
+
+    def draw(self, surface, lines, x, y, line_gap):
+        key = tuple(lines)
+        if key != self.key:
+            self.key = key
+            self.items = [self.font.render(line, True, self.color) for line in lines]
+        for idx, item in enumerate(self.items):
+            surface.blit(item, (x, y + idx * line_gap))
 
 
 class HUDCache:
@@ -502,7 +556,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
     return avoided_now, collected_now
 
 
-def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=False, model_loaded=True, agent=None):
+def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=False, model_loaded=True, agent=None, ai_text_cache=None):
     game_surface.fill(core.BACKGROUND_COLOR)
     state['clouds'].draw(game_surface)
     state['ground'].draw(game_surface)
@@ -512,7 +566,6 @@ def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=Fal
     state['dino'].draw(game_surface)
     hud_cache.draw(game_surface, coins, highest_score, state['score'])
     if ai_demo:
-        font = core.get_font(25)
         lines = ['AI演示模式', f"本局躲避：{min(state['avoided_count'], 999):03d}"]
         if model_loaded and agent is not None:
             lines.extend([
@@ -521,18 +574,57 @@ def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=Fal
             ])
         else:
             lines.append('尚未训练AI，请先按 T 训练')
-        for idx, line in enumerate(lines):
-            surface = font.render(line, True, core.BLACK)
-            game_surface.blit(surface, (50, 160 + idx * 34))
+        if ai_text_cache is None:
+            ai_text_cache = TextLinesCache(core.get_font(25))
+        ai_text_cache.draw(game_surface, lines, 50, 160, 34)
 
 def load_sounds():
     """Load each sound once at startup instead of once per game round."""
     return {key: pygame.mixer.Sound(path) for key, path in core.AUDIO_PATHS.items()}
 
 
+def warm_asset_caches():
+    """Preload and cache image processing once so gameplay frames never do it."""
+    print('正在加载资源...')
+    Ground._get_image(core.IMAGE_PATHS['ground'])
+    Cloud._default_image(core.IMAGE_PATHS['cloud'])
+    Cactus._get_images(core.IMAGE_PATHS['cacti'], (118, 82))
+    Ptera._get_images(core.IMAGE_PATHS['ptera'], 70)
+    Coin._get_fallback_image(14)
+    for skin in ('default', 'blue', 'golden', 'night'):
+        Dinosaur._get_images(core.IMAGE_PATHS['dino'], (110, 78), skin)
+    try:
+        Cloud._get_image(core.IMAGE_PATHS['cloud'], 'text_cloud')
+    except Exception as e:
+        print(f'文字云朵预加载失败: {e}')
+    try:
+        Coin._get_image(14, 'icecream')
+    except Exception as e:
+        print(f'雪糕金币预加载失败: {e}')
+    try:
+        Dinosaur._get_images(core.IMAGE_PATHS['dino'], (110, 78), 'runner')
+    except Exception as e:
+        print(f'奔跑人物预加载失败: {e}')
+    pygame.event.pump()
+    print('资源加载完成')
+
+
 def ai_end_interface(screen, game_surface, avoided_count):
     font_title = core.get_font(52)
     font_mid = core.get_font(30)
+    end_surface = pygame.Surface(core.LOGICAL_SIZE)
+    end_surface.fill((255, 255, 255))
+    lines = [
+        (font_title, 'AI演示结束', 150),
+        (font_mid, f'躲避障碍：{avoided_count}', 250),
+        (font_mid, '按 A 再试一次', 335),
+        (font_mid, '按 T 继续训练AI', 385),
+        (font_mid, '按 ESC 返回', 435),
+    ]
+    for font, text, y in lines:
+        surface = font.render(text, True, core.BLACK)
+        end_surface.blit(surface, surface.get_rect(center=(core.LOGICAL_SIZE[0] // 2, y)))
+
     clock = pygame.time.Clock()
     while True:
         for event in pygame.event.get():
@@ -547,17 +639,7 @@ def ai_end_interface(screen, game_surface, avoided_count):
                     return 'train'
                 if event.key == pygame.K_ESCAPE:
                     return 'back'
-        game_surface.fill((255, 255, 255))
-        lines = [
-            (font_title, 'AI演示结束', 150),
-            (font_mid, f'躲避障碍：{avoided_count}', 250),
-            (font_mid, '按 A 再试一次', 335),
-            (font_mid, '按 T 继续训练AI', 385),
-            (font_mid, '按 ESC 返回', 435),
-        ]
-        for font, text, y in lines:
-            surface = font.render(text, True, core.BLACK)
-            game_surface.blit(surface, surface.get_rect(center=(core.LOGICAL_SIZE[0] // 2, y)))
+        game_surface.blit(end_surface, (0, 0))
         core.blit_scaled(game_surface, screen)
         clock.tick(core.FPS)
 
@@ -570,6 +652,8 @@ def run_ai_demo(screen, highest_score, coins, upgrades, sounds):
     state = create_game_objects(upgrades)
     clock = pygame.time.Clock()
     hud_cache = HUDCache(core.get_font(28))
+    ai_text_cache = TextLinesCache(core.get_font(25))
+    perf = PerfMonitor('ai_demo')
 
     while True:
         for event in pygame.event.get():
@@ -589,9 +673,10 @@ def run_ai_demo(screen, highest_score, coins, upgrades, sounds):
         apply_ai_action(state['dino'], action, sounds)
         _, collected_now = update_world(state, upgrades, sounds, current_speed)
         coins += collected_now
-        draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=True, model_loaded=model_loaded, agent=agent)
+        draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=True, model_loaded=model_loaded, agent=agent, ai_text_cache=ai_text_cache)
         core.blit_scaled(game_surface, screen)
         clock.tick(core.FPS)
+        perf.tick(clock, state)
 
         if state['dino'].is_dead:
             while True:
@@ -705,6 +790,7 @@ def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000, reset_train
             if stopped:
                 break
 
+            clock.tick(240)
             current_speed = get_current_speed(state['score'], upgrades)
             old_state = get_rl_state(state['dino'], state['cacti'], state['pteras'], current_speed)
             action = agent.choose_action(old_state, training=True)
@@ -756,6 +842,14 @@ def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000, reset_train
         'session_average_score': average_score,
     }
     agent.save(Q_TABLE_PATH, session_metadata)
+    if stopped:
+        return {
+            'episodes': completed_episodes,
+            'best_avoided': session_best_avoided,
+            'average_score': average_score,
+            'quit': False,
+            'action': 'back',
+        }
     render_training_status(
         screen,
         game_surface,
@@ -892,6 +986,7 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
     score_timer = 0
     clock = pygame.time.Clock()
     hud_cache = HUDCache(core.get_font(28))
+    perf = PerfMonitor('game')
     current_speed = get_current_speed(score, upgrades)
     apply_speed_to_sprites(
         current_speed,
@@ -1022,6 +1117,12 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
 
         core.blit_scaled(game_surface, screen)
         clock.tick(core.FPS)
+        perf.tick(clock, {
+            'clouds': cloud_sprites_group,
+            'coins': coin_sprites_group,
+            'cacti': cactus_sprites_group,
+            'pteras': ptera_sprites_group,
+        })
 
         if dino.is_dead:
             save_score(conn, score)
@@ -1057,6 +1158,7 @@ if __name__ == '__main__':
     pygame.init()
     screen = create_screen()
     sounds = load_sounds()
+    warm_asset_caches()
     conn, highest_score, coins, upgrades = init_database()
     try:
         while True:
