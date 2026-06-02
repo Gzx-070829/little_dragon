@@ -2,7 +2,6 @@ from collections import deque
 
 import pygame
 
-import core
 
 
 _PROCESSED_IMAGE_CACHE = {}

@@ -294,7 +294,6 @@ def ShopInterface(screen, game_surface, cfg, coins, upgrades, sounds=None, save_
                         if sounds:
                             sounds['button'].play()
                     upgrades['equipped_skin'] = skin['key']
-                    print(f"[DEBUG] 装备角色皮肤: {upgrades.get('equipped_skin')}")
                     if skin['key'] == 'runner':
                         try:
                             from ..sprites.dinosaur import Dinosaur
