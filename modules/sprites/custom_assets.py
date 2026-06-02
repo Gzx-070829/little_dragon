@@ -8,6 +8,14 @@ import core
 _PROCESSED_IMAGE_CACHE = {}
 
 
+def keep_pygame_responsive():
+    """Pump events during expensive image processing; allow window close to abort startup."""
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            raise SystemExit
+    pygame.event.pump()
+
+
 def _matches_background(color, bg, tolerance):
     r, g, b = color[:3]
     if bg == 'white':
@@ -41,9 +49,13 @@ def remove_edge_background(surface, bg='white', tolerance=30):
         add_if_bg(0, y)
         add_if_bg(width - 1, y)
 
+    processed = 0
     while queue:
         x, y = queue.popleft()
         source.set_at((x, y), (0, 0, 0, 0))
+        processed += 1
+        if processed % 4000 == 0:
+            keep_pygame_responsive()
         for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
             if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in visited:
                 visited.add((nx, ny))

@@ -1,7 +1,7 @@
 import pygame
 
 import core
-from .custom_assets import remove_edge_background, trim_transparent_surface
+from .custom_assets import keep_pygame_responsive, remove_edge_background, trim_transparent_surface
 
 
 def trim_surface(surface):
@@ -59,18 +59,19 @@ def load_runner_sheet_frames(heights):
     if cell_width <= 0 or cell_height <= 0:
         raise ValueError(f'runner_sheet 尺寸无效: {sheet_width}x{sheet_height}')
 
-    for row in range(rows):
-        for col in range(columns):
-            frame_index = row * columns + col
-            rect = pygame.Rect(col * cell_width, row * cell_height, cell_width, cell_height)
-            cell = sheet.subsurface(rect).copy()
-            cell = remove_edge_background(cell, bg='white', tolerance=19)
-            cell = trim_transparent_surface(cell)
-            bounds = cell.get_bounding_rect()
-            if bounds.width <= 2 or bounds.height <= 2:
-                print(f"跳过无效 runner 帧 index={frame_index}")
-                continue
-            frames.append(_scale_runner_frame(cell, target_height))
+    # 只处理前 6 帧，避免启动阶段对 12 帧大图重复去背景造成长时间卡顿。
+    for col in range(columns):
+        frame_index = col
+        rect = pygame.Rect(col * cell_width, 0, cell_width, cell_height)
+        cell = sheet.subsurface(rect).copy()
+        cell = remove_edge_background(cell, bg='white', tolerance=19)
+        cell = trim_transparent_surface(cell)
+        bounds = cell.get_bounding_rect()
+        if bounds.width <= 2 or bounds.height <= 2:
+            print(f"跳过无效 runner 帧 index={frame_index}")
+            continue
+        frames.append(_scale_runner_frame(cell, target_height))
+        keep_pygame_responsive()
 
     if len(frames) < 6:
         raise ValueError(f'runner_sheet 可用帧过少: {len(frames)}')
