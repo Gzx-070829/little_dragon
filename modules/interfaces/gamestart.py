@@ -28,10 +28,11 @@ def GameStartInterface(screen, game_surface, sounds, cfg, coins=0, equipped_skin
         _centered_surface(tip_font, '按 S 打开商城', logical_h * 0.53, logical_w),
         _centered_surface(tip_font, '按 A AI演示', logical_h * 0.60, logical_w),
         _centered_surface(tip_font, '按 T 继续训练AI', logical_h * 0.67, logical_w),
-        _centered_surface(tip_font, '按 R 重置AI训练', logical_h * 0.74, logical_w),
-        _centered_surface(tip_font, '按 D 清除存档', logical_h * 0.80, logical_w),
-        _centered_surface(tip_font, '按 ESC 退出游戏', logical_h * 0.86, logical_w),
-        _centered_surface(coin_font, f'金币 {min(coins, 99999):05d}', logical_h * 0.93, logical_w),
+        _centered_surface(tip_font, '按 Y 强化训练AI', logical_h * 0.74, logical_w),
+        _centered_surface(tip_font, '按 R 重置AI训练', logical_h * 0.80, logical_w),
+        _centered_surface(tip_font, '按 D 清除存档', logical_h * 0.86, logical_w),
+        _centered_surface(tip_font, '按 ESC 退出游戏', logical_h * 0.91, logical_w),
+        _centered_surface(coin_font, f'金币 {min(coins, 99999):05d}', logical_h * 0.96, logical_w),
     ]
 
     dino = Dinosaur(cfg.IMAGE_PATHS['dino'], skin=equipped_skin)
@@ -60,6 +61,9 @@ def GameStartInterface(screen, game_surface, sounds, cfg, coins=0, equipped_skin
                 if event.key == pygame.K_t:
                     sounds['button'].play()
                     return 'ai_train'
+                if event.key == pygame.K_y:
+                    sounds['button'].play()
+                    return 'ai_boost_train'
                 if event.key == pygame.K_d:
                     sounds['button'].play()
                     return 'clear_save'
