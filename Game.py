@@ -6,11 +6,19 @@ import time
 import pygame
 
 import core
-from modules import *
+from modules.interfaces import GameEndInterface, GameStartInterface, ShopInterface
+from modules.sprites import Cactus, Cloud, Coin, Dinosaur, Ground, Ptera
 from rl_agent import QLearningAgent
 
 DB_PATH = os.path.join(core.BASE_DIR, 'history.db')
 Q_TABLE_PATH = os.path.join(core.BASE_DIR, 'rl_q_table.json')
+SPEED_SCORE_STEP = 120
+BASE_MIN_OBSTACLE_GAP = 75
+BASE_MAX_OBSTACLE_GAP = 130
+MIN_OBSTACLE_GAP = 45
+MIN_MAX_OBSTACLE_GAP = 80
+MAX_OBSTACLES_ON_SCREEN = 4
+
 
 
 def handle_loading_events():
@@ -129,6 +137,7 @@ def init_database():
         try:
             cursor.execute(column_sql)
         except sqlite3.OperationalError:
+            # 字段已存在时 SQLite 会抛出 OperationalError；这是旧存档迁移的预期情况。
             pass
     cursor.execute(
         """
@@ -287,7 +296,7 @@ def get_current_speed(score, upgrades):
         if upgrades.get('slow_start', 0)
         else core.BASE_GAME_SPEED
     )
-    return min(core.MAX_GAME_SPEED, base_speed + score // 150)
+    return min(core.MAX_GAME_SPEED, base_speed + score // SPEED_SCORE_STEP)
 
 
 def apply_speed_to_sprites(
@@ -308,9 +317,38 @@ def apply_speed_to_sprites(
 
 
 def next_obstacle_interval(score):
-    """分数越高障碍物间隔略微缩短，但保留可反应空间。"""
-    difficulty_steps = min(score // 1000, 8)
-    return random.randint(75 - difficulty_steps * 2, 140 - difficulty_steps * 4)
+    """分数越高障碍物间隔逐步缩短，但保留安全反应空间。"""
+    difficulty_level = min(5, score // 500)
+    min_gap = max(MIN_OBSTACLE_GAP, BASE_MIN_OBSTACLE_GAP - difficulty_level * 5)
+    max_gap = max(MIN_MAX_OBSTACLE_GAP, BASE_MAX_OBSTACLE_GAP - difficulty_level * 8)
+    return random.randint(min_gap, max_gap)
+
+
+def ptera_spawn_probability(score):
+    """翼龙在开局后才加入，并随分数小幅提高出现概率。"""
+    if score < 300:
+        return 0.0
+    if score < 800:
+        return 0.15
+    return 0.25
+
+
+def add_fair_obstacle(cactus_sprites_group, ptera_sprites_group, score, current_speed):
+    """按当前难度生成一个公平障碍，限制同屏数量并同步当前速度。"""
+    total_obstacles = len(cactus_sprites_group) + len(ptera_sprites_group)
+    if total_obstacles >= MAX_OBSTACLES_ON_SCREEN:
+        return
+
+    x = core.SCREENSIZE[0] + random.randint(80, 180)
+    if random.random() < ptera_spawn_probability(score):
+        ptera_y = random.choice((core.GROUND_Y - 75, core.GROUND_Y - 130))
+        ptera_sprites_group.add(
+            Ptera(core.IMAGE_PATHS['ptera'], position=(x, ptera_y), speed=current_speed)
+        )
+    else:
+        cactus_sprites_group.add(
+            Cactus(core.IMAGE_PATHS['cacti'], position=(x, core.GROUND_Y), speed=current_speed)
+        )
 
 
 def apply_coin_magnet(dino, coin_sprites_group):
@@ -561,14 +599,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
     if state['add_obstacle_timer'] > state['next_obstacle_gap']:
         state['add_obstacle_timer'] = 0
         state['next_obstacle_gap'] = next_obstacle_interval(score)
-        total_obstacles = len(state['cacti']) + len(state['pteras'])
-        if total_obstacles < 4:
-            x = core.SCREENSIZE[0] + random.randint(80, 180)
-            if random.randint(0, 100) < 80:
-                state['cacti'].add(Cactus(core.IMAGE_PATHS['cacti'], position=(x, core.GROUND_Y), speed=current_speed))
-            else:
-                ptera_y = random.choice([core.GROUND_Y - 70, core.GROUND_Y - 130])
-                state['pteras'].add(Ptera(core.IMAGE_PATHS['ptera'], position=(x, ptera_y), speed=current_speed))
+        add_fair_obstacle(state['cacti'], state['pteras'], score, current_speed)
 
     state['add_coin_timer'] += 1
     if len(state['coins']) < 6 and state['add_coin_timer'] > state['next_coin_gap']:
@@ -587,7 +618,13 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
     if upgrades.get('magnet', 0):
         apply_coin_magnet(dino, state['coins'])
 
-    if any(pygame.sprite.collide_mask(dino, cactus) for cactus in state['cacti']) or any(pygame.sprite.collide_mask(dino, ptera) for ptera in state['pteras']):
+    hit_cactus = any(
+        pygame.sprite.collide_mask(dino, cactus) for cactus in state['cacti']
+    )
+    hit_ptera = any(
+        pygame.sprite.collide_mask(dino, ptera) for ptera in state['pteras']
+    )
+    if hit_cactus or hit_ptera:
         dino.die(sounds)
 
     avoided_now = count_avoided_obstacles(dino, state['cacti'], state['pteras'])
@@ -595,8 +632,10 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
 
     collected_now = 0
     if collect_coins:
-        collected = pygame.sprite.spritecollide(dino, state['coins'], True, pygame.sprite.collide_mask)
-        collected_now = len(collected)
+        for coin in list(state['coins']):
+            if pygame.sprite.collide_mask(dino, coin):
+                coin.kill()
+                collected_now += 1
         if collected_now and sounds:
             sounds['point'].play()
 
@@ -1247,25 +1286,12 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
         if add_obstacle_timer > next_obstacle_gap:
             add_obstacle_timer = 0
             next_obstacle_gap = next_obstacle_interval(score)
-            total_obstacles = len(cactus_sprites_group) + len(ptera_sprites_group)
-            if total_obstacles < 4:
-                x = core.SCREENSIZE[0] + random.randint(80, 180)
-
-                if random.randint(0, 100) < 80:
-                    cactus = Cactus(
-                        core.IMAGE_PATHS['cacti'],
-                        position=(x, core.GROUND_Y),
-                        speed=current_speed,
-                    )
-                    cactus_sprites_group.add(cactus)
-                else:
-                    ptera_y = random.choice([core.GROUND_Y - 70, core.GROUND_Y - 130])
-                    ptera = Ptera(
-                        core.IMAGE_PATHS['ptera'],
-                        position=(x, ptera_y),
-                        speed=current_speed,
-                    )
-                    ptera_sprites_group.add(ptera)
+            add_fair_obstacle(
+                cactus_sprites_group,
+                ptera_sprites_group,
+                score,
+                current_speed,
+            )
 
         add_coin_timer += 1
         if len(coin_sprites_group) < 6 and add_coin_timer > next_coin_gap:
@@ -1297,14 +1323,13 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
         if hit_cactus or hit_ptera:
             dino.die(sounds)
 
-        collected_coins = pygame.sprite.spritecollide(
-            dino,
-            coin_sprites_group,
-            True,
-            pygame.sprite.collide_mask,
-        )
-        if collected_coins:
-            coins += len(collected_coins)
+        collected_count = 0
+        for coin in list(coin_sprites_group):
+            if pygame.sprite.collide_mask(dino, coin):
+                coin.kill()
+                collected_count += 1
+        if collected_count:
+            coins += collected_count
             sounds['point'].play()
 
         cloud_sprites_group.draw(game_surface)
