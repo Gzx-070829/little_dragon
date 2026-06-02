@@ -124,7 +124,7 @@ class QLearningAgent:
         self.last_train_time = metadata.get('last_train_time')
         self.last_session = {
             key: metadata[key]
-            for key in ('session_episodes', 'session_best_avoided', 'session_best_score', 'session_average_score')
+            for key in ('session_episodes', 'session_best_avoided', 'session_best_score', 'session_average_score', 'session_average_avoided')
             if key in metadata
         }
         print('已加载历史训练数据')

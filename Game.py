@@ -18,6 +18,12 @@ BASE_MAX_OBSTACLE_GAP = 130
 MIN_OBSTACLE_GAP = 45
 MIN_MAX_OBSTACLE_GAP = 80
 MAX_OBSTACLES_ON_SCREEN = 4
+MIN_SPAWN_PIXEL_GAP = 320
+LOW_PTERA_Y = core.GROUND_Y - 125
+HIGH_PTERA_Y = core.GROUND_Y - 185
+LOW_PTERA_REACTION_DISTANCE = 260
+GROUND_OBSTACLE_REACTION_DISTANCE = 230
+
 
 
 
@@ -325,23 +331,61 @@ def next_obstacle_interval(score):
 
 
 def ptera_spawn_probability(score):
-    """翼龙在开局后才加入，并随分数小幅提高出现概率。"""
-    if score < 300:
+    """翼龙循序渐进加入，开局 100 分内不出现。"""
+    if score < 100:
         return 0.0
-    if score < 800:
+    if score < 300:
         return 0.15
-    return 0.25
+    if score < 700:
+        return 0.25
+    return 0.35
 
 
-def add_fair_obstacle(cactus_sprites_group, ptera_sprites_group, score, current_speed):
+def choose_ptera_y(score, curriculum_stage=None):
+    """选择翼龙高度：低空需要下蹲，高空可正常跑过。"""
+    if curriculum_stage == 2:
+        return HIGH_PTERA_Y
+    if curriculum_stage == 3:
+        return random.choice((LOW_PTERA_Y, LOW_PTERA_Y, HIGH_PTERA_Y))
+    if score < 300:
+        return HIGH_PTERA_Y
+    return random.choice((LOW_PTERA_Y, LOW_PTERA_Y, HIGH_PTERA_Y))
+
+
+def training_ptera_probability(curriculum_stage):
+    if curriculum_stage == 2:
+        return 0.15
+    if curriculum_stage == 3:
+        return random.choice((0.25, 0.35))
+    return 0.0
+
+
+def has_safe_spawn_space(cactus_sprites_group, ptera_sprites_group, new_x):
+    """避免仙人掌和翼龙贴得太近，保留最小反应间隔。"""
+    obstacles = list(cactus_sprites_group) + list(ptera_sprites_group)
+    if not obstacles:
+        return True
+    rightmost = max(obstacle.rect.right for obstacle in obstacles)
+    return new_x - rightmost >= MIN_SPAWN_PIXEL_GAP
+
+
+def add_fair_obstacle(cactus_sprites_group, ptera_sprites_group, score, current_speed, curriculum_stage=None):
     """按当前难度生成一个公平障碍，限制同屏数量并同步当前速度。"""
     total_obstacles = len(cactus_sprites_group) + len(ptera_sprites_group)
     if total_obstacles >= MAX_OBSTACLES_ON_SCREEN:
         return
 
-    x = core.SCREENSIZE[0] + random.randint(80, 180)
-    if random.random() < ptera_spawn_probability(score):
-        ptera_y = random.choice((core.GROUND_Y - 75, core.GROUND_Y - 130))
+    x = core.SCREENSIZE[0] + random.randint(100, 190)
+    if not has_safe_spawn_space(cactus_sprites_group, ptera_sprites_group, x):
+        return
+
+    ptera_probability = (
+        training_ptera_probability(curriculum_stage)
+        if curriculum_stage is not None
+        else ptera_spawn_probability(score)
+    )
+    if random.random() < ptera_probability:
+        ptera_y = choose_ptera_y(score, curriculum_stage)
         ptera_sprites_group.add(
             Ptera(core.IMAGE_PATHS['ptera'], position=(x, ptera_y), speed=current_speed)
         )
@@ -536,7 +580,7 @@ def obstacle_kind_and_height(obstacle):
         return 0, 0
     if isinstance(obstacle, Cactus):
         return 1, 0
-    if obstacle.rect.centery >= core.GROUND_Y - 85:
+    if obstacle.rect.centery >= core.GROUND_Y - 150:
         return 2, 1
     return 2, 2
 
@@ -569,16 +613,78 @@ def apply_ai_action(dino, action, sounds):
         dino.unduck()
 
 
+
+
+def safe_fallback_action(rl_state):
+    """仅在 Q 表缺失/近零时使用的展示兜底，不替代强化学习。"""
+    distance_bin, obstacle_type, obstacle_height_bin, _speed_bin, _dino_state = rl_state
+    distance = distance_bin * 50
+    if obstacle_type == 1 and distance <= GROUND_OBSTACLE_REACTION_DISTANCE:
+        return 1
+    if obstacle_type == 2 and obstacle_height_bin == 1 and distance <= LOW_PTERA_REACTION_DISTANCE:
+        return 2
+    return 0
+
+
+def choose_ai_demo_action(agent, rl_state, model_loaded):
+    if not model_loaded:
+        return 0
+    key = agent.state_to_key(rl_state)
+    q_values = agent.q_table.get(key)
+    if q_values is None or max(abs(value) for value in q_values) < 0.001:
+        return safe_fallback_action(rl_state)
+    return agent.choose_action(rl_state, training=False, epsilon_override=0.0)
+
+
+def calculate_training_reward(old_state, action, avoided_now, low_ptera_avoided, collected_now):
+    """清晰奖励：活着、越障、低空翼龙、少量金币，惩罚无意义动作。"""
+    reward = 0.05
+    reward += avoided_now * 15
+    reward += low_ptera_avoided * 5
+    reward += collected_now * 2
+
+    distance_bin, obstacle_type, obstacle_height_bin, _speed_bin, dino_state = old_state
+    distance = distance_bin * 50
+    if obstacle_type == 0 and action in (1, 2):
+        reward -= 0.2
+    if obstacle_type == 2 and obstacle_height_bin == 1 and action == 2 and distance <= LOW_PTERA_REACTION_DISTANCE:
+        reward += 1
+    if obstacle_type == 1 and action == 1 and distance <= GROUND_OBSTACLE_REACTION_DISTANCE and dino_state == 0:
+        reward += 1
+    return reward
+
+
+def training_curriculum_stage(cumulative_episode, session_episodes):
+    progress = min(1.0, max(0, cumulative_episode) / max(1, session_episodes))
+    if progress < 0.30:
+        return 1, '阶段1：学习跳跃'
+    if progress < 0.70:
+        return 2, '阶段2：加入翼龙'
+    return 3, '阶段3：完整障碍'
+
+
+def get_training_speed(score, upgrades, curriculum_stage):
+    base_speed = get_current_speed(score, upgrades)
+    if curriculum_stage == 1:
+        return min(base_speed, 8)
+    if curriculum_stage == 2:
+        return min(base_speed, 10)
+    return base_speed
+
+
 def count_avoided_obstacles(dino, cactus_sprites_group, ptera_sprites_group):
     avoided = 0
+    low_ptera_avoided = 0
     for obstacle in list(cactus_sprites_group) + list(ptera_sprites_group):
         if not getattr(obstacle, 'counted', False) and obstacle.rect.right < dino.rect.left and not dino.is_dead:
             obstacle.counted = True
             avoided += 1
-    return avoided
+            if obstacle_kind_and_height(obstacle) == (2, 1):
+                low_ptera_avoided += 1
+    return avoided, low_ptera_avoided
 
 
-def update_world(state, upgrades, sounds, current_speed, collect_coins=True, training=False):
+def update_world(state, upgrades, sounds, current_speed, collect_coins=True, training=False, curriculum_stage=None):
     score = state['score']
     state['score_timer'] += 1
     if state['score_timer'] > 10:
@@ -603,7 +709,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True, tra
     if state['add_obstacle_timer'] > state['next_obstacle_gap']:
         state['add_obstacle_timer'] = 0
         state['next_obstacle_gap'] = next_obstacle_interval(score)
-        add_fair_obstacle(state['cacti'], state['pteras'], score, current_speed)
+        add_fair_obstacle(state['cacti'], state['pteras'], score, current_speed, curriculum_stage=curriculum_stage)
 
     if not training:
         state['add_coin_timer'] += 1
@@ -634,7 +740,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True, tra
     if hit_cactus or hit_ptera:
         dino.die(sounds)
 
-    avoided_now = count_avoided_obstacles(dino, state['cacti'], state['pteras'])
+    avoided_now, low_ptera_avoided = count_avoided_obstacles(dino, state['cacti'], state['pteras'])
     state['avoided_count'] += avoided_now
 
     collected_now = 0
@@ -646,7 +752,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True, tra
         if collected_now and sounds:
             sounds['point'].play()
 
-    return avoided_now, collected_now
+    return avoided_now, collected_now, low_ptera_avoided
 
 
 def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=False, model_loaded=True, agent=None, ai_text_cache=None):
@@ -665,6 +771,10 @@ def draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=Fal
                 f"累计训练：{agent.training_episodes}轮",
                 f"历史最高躲避：{agent.best_avoided}",
             ])
+            if state['avoided_count'] >= 10:
+                lines.append('已达到 10 障碍目标')
+            elif state['avoided_count'] >= 3:
+                lines.append('已达到 3 障碍目标')
         else:
             lines.append('尚未训练AI，请先按 T 训练')
         if ai_text_cache is None:
@@ -777,9 +887,9 @@ def run_ai_demo(screen, highest_score, coins, upgrades, sounds):
 
         current_speed = get_current_speed(state['score'], upgrades)
         rl_state = get_rl_state(state['dino'], state['cacti'], state['pteras'], current_speed)
-        action = agent.choose_action(rl_state, training=False) if model_loaded else 0
+        action = choose_ai_demo_action(agent, rl_state, model_loaded)
         apply_ai_action(state['dino'], action, sounds)
-        _, collected_now = update_world(state, upgrades, sounds, current_speed)
+        _, collected_now, _ = update_world(state, upgrades, sounds, current_speed)
         coins += collected_now
         draw_world(game_surface, state, hud_cache, coins, highest_score, ai_demo=True, model_loaded=model_loaded, agent=agent, ai_text_cache=ai_text_cache)
         core.blit_scaled(game_surface, screen)
@@ -805,10 +915,11 @@ def render_training_status(
     cumulative_episodes,
     historical_best_avoided,
     session_best_avoided,
-    average_score,
+    average_avoided,
     epsilon,
     finished=False,
     session_best_score=0,
+    curriculum_label='',
 ):
     game_surface.fill((255, 255, 255))
     title_font = core.get_font(48)
@@ -821,10 +932,11 @@ def render_training_status(
             (font, f'累计训练轮数：{cumulative_episodes}', 230),
             (font, f'本次最高躲避：{session_best_avoided}', 275),
             (font, f'历史最高躲避：{historical_best_avoided}', 320),
-            (font, f'本次最高分：{session_best_score}', 365),
-            (font, 'Q表已保存', 420),
-            (font, '按 A 演示AI    按 T 继续训练', 470),
-            (font, '按 ESC 返回', 515),
+            (font, f'本次平均躲避：{average_avoided:.1f}', 365),
+            (font, f'当前探索率：{epsilon:.3f}', 410),
+            (font, 'Q表已保存', 455),
+            (font, '按 A 演示AI    按 T 继续训练', 505),
+            (font, '按 ESC 返回', 550),
         ]
     else:
         lines = [
@@ -832,10 +944,11 @@ def render_training_status(
             (font, f'本次训练：第 {episode} / {episodes} 轮', 205),
             (font, f'累计训练：{cumulative_episodes} 轮', 255),
             (font, f'历史最高躲避：{historical_best_avoided}', 305),
-            (font, f'本次最高躲避：{session_best_avoided}', 355),
-            (font, f'当前探索率：{epsilon:.3f}', 405),
-            (font, f'平均得分：{average_score:.1f}', 455),
-            (font, '按 ESC 停止训练并保存', 510),
+            (font, f'本次最高躲避：{session_best_avoided}', 345),
+            (font, f'本次平均躲避：{average_avoided:.1f}', 390),
+            (font, f'当前探索率：{epsilon:.3f}', 435),
+            (font, curriculum_label, 480),
+            (font, '按 ESC 停止训练并保存', 535),
         ]
     for font_obj, text, y in lines:
         surface = font_obj.render(text, True, core.BLACK)
@@ -985,9 +1098,13 @@ def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_traini
     train_sounds = make_silent_sounds()
     clock = pygame.time.Clock()
     scores = []
+    avoided_scores = []
     session_best_avoided = 0
     session_best_score = 0
     stopped = False
+
+    base_training_episodes = agent.training_episodes
+    _, initial_curriculum_label = training_curriculum_stage(base_training_episodes + 1, episodes)
 
     if loaded_history:
         render_training_status(
@@ -1000,11 +1117,14 @@ def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_traini
             session_best_avoided,
             0,
             agent.epsilon,
+            curriculum_label=initial_curriculum_label,
         )
         pygame.time.wait(250)
 
     completed_episodes = 0
     for episode in range(1, episodes + 1):
+        cumulative_episode = base_training_episodes + completed_episodes + 1
+        curriculum_stage, curriculum_label = training_curriculum_stage(cumulative_episode, episodes)
         state = create_game_objects(upgrades, training=True)
         for step in range(max_steps):
             if step % 40 == 0:
@@ -1016,9 +1136,10 @@ def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_traini
                         'session_best_avoided': session_best_avoided,
                         'session_best_score': session_best_score,
                         'session_average_score': sum(scores) / len(scores) if scores else 0,
+                        'session_average_avoided': sum(avoided_scores) / len(avoided_scores) if avoided_scores else 0,
                     }
                     agent.save(Q_TABLE_PATH, session_metadata)
-                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': session_metadata['session_average_score'], 'quit': True}
+                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': session_metadata['session_average_score'], 'average_avoided': session_metadata['session_average_avoided'], 'quit': True}
                 if event.type == pygame.VIDEORESIZE:
                     screen = core.resize_screen(event.size)
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -1026,18 +1147,26 @@ def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_traini
             if stopped:
                 break
 
-            current_speed = get_current_speed(state['score'], upgrades)
+            current_speed = get_training_speed(state['score'], upgrades, curriculum_stage)
             old_state = get_rl_state(state['dino'], state['cacti'], state['pteras'], current_speed)
             action = agent.choose_action(old_state, training=True)
             exploration_penalty = -0.2 if action == 1 and old_state[1] == 0 else 0.0
             apply_ai_action(state['dino'], action, train_sounds)
-            avoided_now, _ = update_world(state, upgrades, train_sounds, current_speed, collect_coins=False, training=True)
+            avoided_now, _, low_ptera_avoided = update_world(
+                state,
+                upgrades,
+                train_sounds,
+                current_speed,
+                collect_coins=False,
+                training=True,
+                curriculum_stage=curriculum_stage,
+            )
             collected_now = 0
-            reward = 0.1 + avoided_now * 10 + collected_now * 2 + exploration_penalty
+            reward = calculate_training_reward(old_state, action, avoided_now, low_ptera_avoided, collected_now) + exploration_penalty
             done = state['dino'].is_dead
             if done:
                 reward -= 100
-            next_speed = get_current_speed(state['score'], upgrades)
+            next_speed = get_training_speed(state['score'], upgrades, curriculum_stage)
             new_state = get_rl_state(state['dino'], state['cacti'], state['pteras'], next_speed)
             agent.update_q_value(old_state, action, reward, new_state, done=done)
             if avoided_now and state['avoided_count'] > agent.best_avoided:
@@ -1050,6 +1179,7 @@ def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_traini
 
         completed_episodes += 1
         scores.append(state['score'])
+        avoided_scores.append(state['avoided_count'])
         session_best_avoided = max(session_best_avoided, state['avoided_count'])
         session_best_score = max(session_best_score, state['score'])
         agent.best_avoided = max(agent.best_avoided, state['avoided_count'])
@@ -1065,17 +1195,20 @@ def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_traini
                 agent.training_episodes,
                 agent.best_avoided,
                 session_best_avoided,
-                sum(scores) / len(scores),
+                sum(avoided_scores) / len(avoided_scores),
                 agent.epsilon,
+                curriculum_label=curriculum_label,
             )
         clock.tick(0)
 
     average_score = sum(scores) / completed_episodes if completed_episodes else 0
+    average_avoided = sum(avoided_scores) / completed_episodes if completed_episodes else 0
     session_metadata = {
         'session_episodes': completed_episodes,
         'session_best_avoided': session_best_avoided,
         'session_best_score': session_best_score,
         'session_average_score': average_score,
+        'session_average_avoided': average_avoided,
     }
     agent.save(Q_TABLE_PATH, session_metadata)
     if stopped:
@@ -1087,13 +1220,15 @@ def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_traini
             agent.training_episodes,
             agent.best_avoided,
             session_best_avoided,
-            average_score,
+            average_avoided,
             agent.epsilon,
+            curriculum_label=curriculum_label if 'curriculum_label' in locals() else initial_curriculum_label,
         )
         return {
             'episodes': completed_episodes,
             'best_avoided': session_best_avoided,
             'average_score': average_score,
+            'average_avoided': average_avoided,
             'quit': False,
             'action': 'back',
         }
@@ -1105,15 +1240,16 @@ def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_traini
         agent.training_episodes,
         agent.best_avoided,
         session_best_avoided,
-        average_score,
+        average_avoided,
         agent.epsilon,
         finished=True,
+        curriculum_label=curriculum_label if 'curriculum_label' in locals() else initial_curriculum_label,
         session_best_score=session_best_score,
     )
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'quit': True}
+                return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'average_avoided': average_avoided, 'quit': True}
             if event.type == pygame.VIDEORESIZE:
                 screen = core.resize_screen(event.size)
                 render_training_status(
@@ -1124,18 +1260,19 @@ def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_traini
                     agent.training_episodes,
                     agent.best_avoided,
                     session_best_avoided,
-                    average_score,
+                    average_avoided,
                     agent.epsilon,
                     finished=True,
                     session_best_score=session_best_score,
+                    curriculum_label=curriculum_label if 'curriculum_label' in locals() else initial_curriculum_label,
                 )
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_a:
-                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'quit': False, 'action': 'ai_demo'}
+                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'average_avoided': average_avoided, 'quit': False, 'action': 'ai_demo'}
                 if event.key == pygame.K_t:
-                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'quit': False, 'action': 'train'}
+                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'average_avoided': average_avoided, 'quit': False, 'action': 'train'}
                 if event.key == pygame.K_ESCAPE:
-                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'quit': False, 'action': 'back'}
+                    return {'episodes': completed_episodes, 'best_avoided': session_best_avoided, 'average_score': average_score, 'average_avoided': average_avoided, 'quit': False, 'action': 'back'}
         clock.tick(core.FPS)
 
 def main(screen, conn, highest_score, coins, upgrades, sounds):
