@@ -492,21 +492,24 @@ def make_silent_sounds():
     return {key: SilentSound() for key in ('die', 'jump', 'point', 'button')}
 
 
-def create_game_objects(upgrades):
+def create_game_objects(upgrades, training=False):
+    """Create one game world; training mode skips cosmetic skin work."""
+    dino_skin = 'default' if training else upgrades.get('equipped_skin', 'default')
     dino = Dinosaur(
         core.IMAGE_PATHS['dino'],
         position=(40, core.GROUND_Y),
-        skin=upgrades.get('equipped_skin', 'default'),
+        skin=dino_skin,
     )
     if upgrades.get('jump_boost', 0):
         dino.speed = 21
-    return {
+
+    state = {
         'score': 0,
         'score_timer': 0,
         'add_obstacle_timer': 0,
         'next_obstacle_gap': next_obstacle_interval(0),
         'add_coin_timer': 0,
-        'next_coin_gap': random.randint(100, 180),
+        'next_coin_gap': 0 if training else random.randint(100, 180),
         'avoided_count': 0,
         'dino': dino,
         'ground': Ground(core.IMAGE_PATHS['ground'], position=(0, core.GROUND_Y)),
@@ -515,6 +518,7 @@ def create_game_objects(upgrades):
         'pteras': pygame.sprite.Group(),
         'coins': pygame.sprite.Group(),
     }
+    return state
 
 
 def nearest_obstacle(dino, cactus_sprites_group, ptera_sprites_group):
@@ -574,14 +578,14 @@ def count_avoided_obstacles(dino, cactus_sprites_group, ptera_sprites_group):
     return avoided
 
 
-def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
+def update_world(state, upgrades, sounds, current_speed, collect_coins=True, training=False):
     score = state['score']
     state['score_timer'] += 1
     if state['score_timer'] > 10:
         state['score_timer'] = 0
         state['score'] += 1
         score = state['score']
-        if sounds and score % 100 == 0:
+        if not training and sounds and score % 100 == 0:
             sounds['point'].play()
 
     apply_speed_to_sprites(
@@ -592,7 +596,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
         state['coins'],
     )
 
-    if len(state['clouds']) < 5 and random.randint(0, 600) == 1:
+    if not training and len(state['clouds']) < 5 and random.randint(0, 600) == 1:
         state['clouds'].add(Cloud(core.IMAGE_PATHS['cloud'], position=(core.SCREENSIZE[0] + random.randint(80, 180), random.randint(50, 200)), skin=upgrades.get('equipped_cloud_skin', 'default')))
 
     state['add_obstacle_timer'] += 1
@@ -601,22 +605,25 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
         state['next_obstacle_gap'] = next_obstacle_interval(score)
         add_fair_obstacle(state['cacti'], state['pteras'], score, current_speed)
 
-    state['add_coin_timer'] += 1
-    if len(state['coins']) < 6 and state['add_coin_timer'] > state['next_coin_gap']:
-        state['add_coin_timer'] = 0
-        state['next_coin_gap'] = random.randint(100, 190)
-        coin_y = random.choice([core.GROUND_Y - 35, core.GROUND_Y - 75, core.GROUND_Y - 110])
-        state['coins'].add(Coin(position=(core.SCREENSIZE[0] + random.randint(70, 170), coin_y), speed=current_speed, skin=upgrades.get('equipped_coin_skin', 'default')))
+    if not training:
+        state['add_coin_timer'] += 1
+        if len(state['coins']) < 6 and state['add_coin_timer'] > state['next_coin_gap']:
+            state['add_coin_timer'] = 0
+            state['next_coin_gap'] = random.randint(100, 190)
+            coin_y = random.choice([core.GROUND_Y - 35, core.GROUND_Y - 75, core.GROUND_Y - 110])
+            state['coins'].add(Coin(position=(core.SCREENSIZE[0] + random.randint(70, 170), coin_y), speed=current_speed, skin=upgrades.get('equipped_coin_skin', 'default')))
 
     dino = state['dino']
     dino.update()
     state['ground'].update()
-    state['clouds'].update()
+    if not training:
+        state['clouds'].update()
     state['cacti'].update()
     state['pteras'].update()
-    state['coins'].update()
-    if upgrades.get('magnet', 0):
-        apply_coin_magnet(dino, state['coins'])
+    if not training:
+        state['coins'].update()
+        if upgrades.get('magnet', 0):
+            apply_coin_magnet(dino, state['coins'])
 
     hit_cactus = any(
         pygame.sprite.collide_mask(dino, cactus) for cactus in state['cacti']
@@ -631,7 +638,7 @@ def update_world(state, upgrades, sounds, current_speed, collect_coins=True):
     state['avoided_count'] += avoided_now
 
     collected_now = 0
-    if collect_coins:
+    if collect_coins and not training:
         for coin in list(state['coins']):
             if pygame.sprite.collide_mask(dino, coin):
                 coin.kill()
@@ -969,7 +976,7 @@ def ClearSaveInterface(screen, game_surface, conn):
 
 
 
-def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000, reset_training=False):
+def train_ai(screen, upgrades, sounds, episodes=80, max_steps=1800, reset_training=False):
     game_surface = pygame.Surface(core.LOGICAL_SIZE)
     if reset_training:
         reset_ai_training()
@@ -998,9 +1005,11 @@ def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000, reset_train
 
     completed_episodes = 0
     for episode in range(1, episodes + 1):
-        state = create_game_objects(upgrades)
+        state = create_game_objects(upgrades, training=True)
         for step in range(max_steps):
-            for event in pygame.event.get():
+            if step % 40 == 0:
+                pygame.event.pump()
+            for event in (pygame.event.get() if step % 40 == 0 else ()):
                 if event.type == pygame.QUIT:
                     session_metadata = {
                         'session_episodes': completed_episodes,
@@ -1017,13 +1026,13 @@ def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000, reset_train
             if stopped:
                 break
 
-            clock.tick(240)
             current_speed = get_current_speed(state['score'], upgrades)
             old_state = get_rl_state(state['dino'], state['cacti'], state['pteras'], current_speed)
             action = agent.choose_action(old_state, training=True)
             exploration_penalty = -0.2 if action == 1 and old_state[1] == 0 else 0.0
             apply_ai_action(state['dino'], action, train_sounds)
-            avoided_now, collected_now = update_world(state, upgrades, train_sounds, current_speed, collect_coins=True)
+            avoided_now, _ = update_world(state, upgrades, train_sounds, current_speed, collect_coins=False, training=True)
+            collected_now = 0
             reward = 0.1 + avoided_now * 10 + collected_now * 2 + exploration_penalty
             done = state['dino'].is_dead
             if done:
@@ -1059,7 +1068,7 @@ def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000, reset_train
                 sum(scores) / len(scores),
                 agent.epsilon,
             )
-            clock.tick(30)
+        clock.tick(0)
 
     average_score = sum(scores) / completed_episodes if completed_episodes else 0
     session_metadata = {
@@ -1070,6 +1079,17 @@ def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000, reset_train
     }
     agent.save(Q_TABLE_PATH, session_metadata)
     if stopped:
+        render_training_status(
+            screen,
+            game_surface,
+            completed_episodes,
+            episodes,
+            agent.training_episodes,
+            agent.best_avoided,
+            session_best_avoided,
+            average_score,
+            agent.epsilon,
+        )
         return {
             'episodes': completed_episodes,
             'best_avoided': session_best_avoided,
