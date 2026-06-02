@@ -30,6 +30,7 @@ class Cactus(pygame.sprite.Sprite):
     """仙人掌障碍物类"""
 
     _IMAGE_CACHE = {}
+    _MASK_CACHE = {}
 
     @classmethod
     def _get_images(cls, imagepaths, heights):
@@ -52,7 +53,14 @@ class Cactus(pygame.sprite.Sprite):
             images.append(scale_to_height(frame, heights[1]))
 
         cls._IMAGE_CACHE[cache_key] = images
+        cls._MASK_CACHE[cache_key] = [pygame.mask.from_surface(image) for image in images]
         return images
+
+    @classmethod
+    def _get_masks(cls, imagepaths, heights):
+        cache_key = (tuple(imagepaths), tuple(heights))
+        cls._get_images(imagepaths, heights)
+        return cls._MASK_CACHE[cache_key]
 
     def __init__(self, imagepaths, position=None, heights=None, speed=10, **kwargs):
         """
@@ -70,11 +78,13 @@ class Cactus(pygame.sprite.Sprite):
             heights = (118, 82)
 
         self.images = self._get_images(imagepaths, heights)
-        self.image = random.choice(self.images)
+        self.masks = self._get_masks(imagepaths, heights)
+        image_index = random.randrange(len(self.images))
+        self.image = self.images[image_index]
         self.rect = self.image.get_rect()
         self.rect.left = position[0]
         self.rect.bottom = position[1] + core.CACTUS_GROUND_OFFSET
-        self.mask = pygame.mask.from_surface(self.image)
+        self.mask = self.masks[image_index]
         self.speed = -abs(speed)
         self.counted = False
 
@@ -93,6 +103,7 @@ class Ptera(pygame.sprite.Sprite):
     """翼龙障碍物类"""
 
     _IMAGE_CACHE = {}
+    _MASK_CACHE = {}
 
     @classmethod
     def _get_images(cls, imagepath, height):
@@ -109,7 +120,14 @@ class Ptera(pygame.sprite.Sprite):
             images.append(scale_to_height(frame, height))
 
         cls._IMAGE_CACHE[cache_key] = images
+        cls._MASK_CACHE[cache_key] = [pygame.mask.from_surface(image) for image in images]
         return images
+
+    @classmethod
+    def _get_masks(cls, imagepath, height):
+        cache_key = (imagepath, height)
+        cls._get_images(imagepath, height)
+        return cls._MASK_CACHE[cache_key]
 
     def __init__(self, imagepath, position=None, height=70, speed=10, **kwargs):
         """
@@ -125,11 +143,12 @@ class Ptera(pygame.sprite.Sprite):
             position = (core.SCREENSIZE[0], core.GROUND_Y - 100)
 
         self.images = self._get_images(imagepath, height)
+        self.masks = self._get_masks(imagepath, height)
         self.image_idx = 0
         self.image = self.images[self.image_idx]
         self.rect = self.image.get_rect()
         self.rect.left, self.rect.centery = position
-        self.mask = pygame.mask.from_surface(self.image)
+        self.mask = self.masks[self.image_idx]
         self.speed = -abs(speed)
         self.refresh_rate = 10
         self.refresh_counter = 0
@@ -156,4 +175,4 @@ class Ptera(pygame.sprite.Sprite):
         center = self.rect.center
         self.image = self.images[self.image_idx]
         self.rect = self.image.get_rect(center=center)
-        self.mask = pygame.mask.from_surface(self.image)
+        self.mask = self.masks[self.image_idx]

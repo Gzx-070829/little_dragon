@@ -9,6 +9,7 @@ WINDOW_SIZE = LOGICAL_SIZE
 SCREENSIZE = LOGICAL_SIZE  # 游戏内部始终使用固定逻辑分辨率。
 FPS = 60  # 每秒帧数
 USE_SMOOTH_SCALE = False  # 默认优先流畅度；需要更平滑缩放时可改为 True。
+USE_SDL_SCALED = True  # 优先让 SDL 处理窗口缩放，避免 Python 每帧缩放整张画布。
 # 统一的地面表面基准线：角色脚底、仙人掌底部、金币和翼龙高度都围绕这里对齐。
 GROUND_Y = int(LOGICAL_SIZE[1] * 0.86)
 # 仙人掌在裁掉透明边距后轻微下沉，确保视觉底部彻底贴住地面表面。
@@ -61,7 +62,9 @@ def set_screen_size(size):
 
 
 def resize_screen(size):
-    """Resize the real window while preserving fixed in-game coordinates."""
+    """Handle resize without rebuilding game resources or databases."""
+    if USE_SDL_SCALED:
+        return pygame.display.get_surface()
     width, height = size
     return pygame.display.set_mode(
         (max(1, int(width)), max(1, int(height))),
@@ -91,7 +94,12 @@ def _scaled_layout(window_size, logical_size):
 
 
 def blit_scaled(game_surface, screen):
-    """Scale the fixed logical game surface into the real window with letterboxing."""
+    """Present the fixed logical surface, preferring SDL's scaled renderer."""
+    if USE_SDL_SCALED and screen.get_size() == game_surface.get_size():
+        screen.blit(game_surface, (0, 0))
+        pygame.display.flip()
+        return
+
     scaled_size, offset, _ = _scaled_layout(screen.get_size(), game_surface.get_size())
     if USE_SMOOTH_SCALE:
         scaled_surface = pygame.transform.smoothscale(game_surface, scaled_size)
@@ -105,6 +113,9 @@ def blit_scaled(game_surface, screen):
 
 def screen_to_game_pos(pos, screen, game_surface):
     """Map a real-window mouse position back to fixed logical game coordinates."""
+    if USE_SDL_SCALED and screen.get_size() == game_surface.get_size():
+        return int(pos[0]), int(pos[1])
+
     window_w, window_h = screen.get_size()
     logical_w, logical_h = game_surface.get_size()
 

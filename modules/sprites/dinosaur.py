@@ -75,12 +75,12 @@ def load_runner_sheet_frames(heights):
     if len(frames) < 6:
         raise ValueError(f'runner_sheet 可用帧过少: {len(frames)}')
 
-    run_frames = frames[:12]
+    # 限制为 6 帧，减少动画换帧时的 rect/mask 更新成本。
+    run_frames = frames[:6]
     duck_frame = _make_duck_frame(run_frames[0], heights[1])
     images = run_frames + [duck_frame]
     _RUNNER_SHEET_CACHE[cache_key] = images
     print(f"加载奔跑人物皮肤成功，帧数：{len(run_frames)}")
-    print(f"runner frame sizes: {[frame.get_size() for frame in run_frames]}")
     return images
 
 
@@ -111,6 +111,8 @@ class Dinosaur(pygame.sprite.Sprite):
     """恐龙玩家角色。"""
 
     _IMAGE_CACHE = {}
+    _MASK_CACHE = {}
+    _FAILED_SKINS = set()
     _LAST_RUNNER_LOAD_OK = False
 
     @classmethod
@@ -140,20 +142,35 @@ class Dinosaur(pygame.sprite.Sprite):
             return cached
 
         if skin == 'runner':
+            failed_key = (core.IMAGE_PATHS['custom_runner_sheet'], tuple(heights))
+            if failed_key in cls._FAILED_SKINS:
+                cls._LAST_RUNNER_LOAD_OK = False
+                return cls._get_images(imagepaths, heights, 'default')
             try:
                 images = load_runner_sheet_frames(heights)
                 cls._LAST_RUNNER_LOAD_OK = True
                 cls._IMAGE_CACHE[cache_key] = images
                 return images
             except Exception as e:
+                cls._FAILED_SKINS.add(failed_key)
                 cls._LAST_RUNNER_LOAD_OK = False
                 print(f"加载奔跑人物皮肤失败: {e}")
                 print('奔跑人物加载失败，已使用默认皮肤')
-                return cls._get_default_images(imagepaths, heights, 'default')
+                return cls._get_images(imagepaths, heights, 'default')
 
         images = cls._get_default_images(imagepaths, heights, skin)
         cls._IMAGE_CACHE[cache_key] = images
         return images
+
+    @classmethod
+    def _get_masks(cls, images):
+        cache_key = tuple(id(image) for image in images)
+        cached = cls._MASK_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        masks = [pygame.mask.from_surface(image) for image in images]
+        cls._MASK_CACHE[cache_key] = masks
+        return masks
 
     @classmethod
     def can_load_runner_skin(cls):
@@ -179,10 +196,8 @@ class Dinosaur(pygame.sprite.Sprite):
 
         self.skin = skin
         self.images = self._get_images(imagepaths, heights, self.skin)
+        self.masks = self._get_masks(self.images)
         self.runner_skin_loaded = self.skin == 'runner' and self._LAST_RUNNER_LOAD_OK
-        print(f"[DEBUG] Dinosaur skin={self.skin}, image_count={len(self.images)}")
-        if self.runner_skin_loaded:
-            print(f"[DEBUG] runner skin active, frames={len(self.images)}")
         self.duck_image_idx = len(self.images) - 1
         self.dead_image_idx = min(4, max(0, len(self.images) - 2))
         self.running_frame_count = max(1, len(self.images) - 1)
@@ -191,7 +206,7 @@ class Dinosaur(pygame.sprite.Sprite):
         self.image = self.images[self.image_idx]
         self.rect = self.image.get_rect()
         self.rect.left, self.rect.bottom = position
-        self.mask = pygame.mask.from_surface(self.image)
+        self.mask = self.masks[self.image_idx]
 
         self.init_position = position
         self.refresh_rate = 4 if self.runner_skin_loaded else 5
@@ -245,7 +260,7 @@ class Dinosaur(pygame.sprite.Sprite):
             self.rect.bottom = old_bottom
         else:
             self.rect = self.image.get_rect(midbottom=old_midbottom)
-        self.mask = pygame.mask.from_surface(self.image)
+        self.mask = self.masks[self.image_idx]
 
     def update(self):
         """更新恐龙跳跃、下蹲和跑步动画状态。"""
