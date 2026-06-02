@@ -13,6 +13,58 @@ DB_PATH = os.path.join(core.BASE_DIR, 'history.db')
 Q_TABLE_PATH = os.path.join(core.BASE_DIR, 'rl_q_table.json')
 
 
+def handle_loading_events():
+    """处理加载阶段事件，避免窗口被系统标记为无响应。"""
+    screen = pygame.display.get_surface()
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return screen, False
+        if event.type == pygame.VIDEORESIZE:
+            screen = core.resize_screen(event.size)
+    pygame.event.pump()
+    return screen, True
+
+
+def draw_loading_screen(screen, message="资源加载中..."):
+    """启动后立刻绘制中文加载界面，并在每个加载阶段刷新。"""
+    game_surface = pygame.Surface(core.LOGICAL_SIZE)
+    game_surface.fill(core.BACKGROUND_COLOR)
+    try:
+        title_font = core.get_font(56)
+        message_font = core.get_font(30)
+        hint_font = core.get_font(24)
+    except Exception:
+        title_font = pygame.font.Font(None, 56)
+        message_font = pygame.font.Font(None, 30)
+        hint_font = pygame.font.Font(None, 24)
+
+    lines = (
+        (title_font, '像素恐龙快跑', core.LOGICAL_SIZE[1] * 0.34),
+        (message_font, message, core.LOGICAL_SIZE[1] * 0.50),
+        (hint_font, '请稍候', core.LOGICAL_SIZE[1] * 0.60),
+    )
+    for font, text, y in lines:
+        text_surface = font.render(text, True, core.BLACK)
+        rect = text_surface.get_rect(center=(core.LOGICAL_SIZE[0] // 2, int(y)))
+        game_surface.blit(text_surface, rect)
+
+    core.blit_scaled(game_surface, screen)
+    return handle_loading_events()
+
+
+def loading_step(screen, message, func=None):
+    """显示加载提示，执行单个加载步骤，完成后再次泵事件。"""
+    screen, running = draw_loading_screen(screen, message)
+    if not running:
+        raise SystemExit
+    if func is not None:
+        func()
+    screen, running = handle_loading_events()
+    if not running:
+        raise SystemExit
+    return pygame.display.get_surface() or screen
+
+
 def _default_upgrades():
     return {
         'jump_boost': 0,
@@ -99,9 +151,6 @@ def init_database():
         print(f"读取最高分失败: {e}")
 
     coins, upgrades = load_player_state(conn)
-    print(f"[DEBUG] equipped_skin={upgrades.get('equipped_skin')}, skin_runner={upgrades.get('skin_runner')}")
-    if upgrades.get('equipped_skin') == 'runner':
-        print(f"[DEBUG] runner skin load test={Dinosaur.can_load_runner_skin()}")
     return conn, highest_score, coins, upgrades
 
 
@@ -131,7 +180,6 @@ def load_player_state(conn):
                 """
             )
             conn.commit()
-            print(f"[DEBUG] equipped_skin={upgrades.get('equipped_skin')}, skin_runner={upgrades.get('skin_runner')}")
             return 0, upgrades
 
         (
@@ -161,7 +209,6 @@ def load_player_state(conn):
         upgrades['equipped_cloud_skin'] = equipped_cloud_skin if equipped_cloud_skin in ('default', 'text_cloud') else 'default'
         upgrades['coin_icecream_skin'] = int(coin_icecream_skin)
         upgrades['equipped_coin_skin'] = equipped_coin_skin if equipped_coin_skin in ('default', 'icecream') else 'default'
-        print(f"[DEBUG] equipped_skin={upgrades.get('equipped_skin')}, skin_runner={upgrades.get('skin_runner')}")
         return int(coins), upgrades
     except Exception as e:
         print(f"读取玩家状态失败: {e}")
@@ -583,30 +630,45 @@ def load_sounds():
     return {key: pygame.mixer.Sound(path) for key, path in core.AUDIO_PATHS.items()}
 
 
-def warm_asset_caches():
+def warm_asset_caches(screen):
     """Preload and cache image processing once so gameplay frames never do it."""
     print('正在加载资源...')
-    Ground._get_image(core.IMAGE_PATHS['ground'])
-    Cloud._default_image(core.IMAGE_PATHS['cloud'])
-    Cactus._get_images(core.IMAGE_PATHS['cacti'], (118, 82))
-    Ptera._get_images(core.IMAGE_PATHS['ptera'], 70)
-    Coin._get_fallback_image(14)
-    for skin in ('default', 'blue', 'golden', 'night'):
-        Dinosaur._get_images(core.IMAGE_PATHS['dino'], (110, 78), skin)
-    try:
-        Cloud._get_image(core.IMAGE_PATHS['cloud'], 'text_cloud')
-    except Exception as e:
-        print(f'文字云朵预加载失败: {e}')
-    try:
-        Coin._get_image(14, 'icecream')
-    except Exception as e:
-        print(f'雪糕金币预加载失败: {e}')
-    try:
-        Dinosaur._get_images(core.IMAGE_PATHS['dino'], (110, 78), 'runner')
-    except Exception as e:
-        print(f'奔跑人物预加载失败: {e}')
-    pygame.event.pump()
+
+    def load_fonts():
+        for size in (22, 24, 25, 26, 28, 30, 48, 52, 56, 60):
+            core.get_font(size)
+
+    def load_default_images():
+        Ground._get_image(core.IMAGE_PATHS['ground'])
+        Cloud._default_image(core.IMAGE_PATHS['cloud'])
+        Cactus._get_images(core.IMAGE_PATHS['cacti'], (118, 82))
+        Ptera._get_images(core.IMAGE_PATHS['ptera'], 70)
+        Coin._get_fallback_image(14)
+        for skin in ('default', 'blue', 'golden', 'night'):
+            Dinosaur._get_images(core.IMAGE_PATHS['dino'], (110, 78), skin)
+
+    def load_custom_scene_assets():
+        try:
+            Cloud._get_image(core.IMAGE_PATHS['cloud'], 'text_cloud')
+        except Exception as e:
+            print(f'文字云朵预加载失败: {e}')
+        try:
+            Coin._get_image(14, 'icecream')
+        except Exception as e:
+            print(f'雪糕金币预加载失败: {e}')
+
+    def load_runner_skin():
+        try:
+            Dinosaur._get_images(core.IMAGE_PATHS['dino'], (110, 78), 'runner')
+        except Exception as e:
+            print(f'奔跑人物预加载失败: {e}')
+
+    screen = loading_step(screen, '正在加载字体...', load_fonts)
+    screen = loading_step(screen, '正在加载图片...', load_default_images)
+    screen = loading_step(screen, '正在处理皮肤...', load_custom_scene_assets)
+    screen = loading_step(screen, '正在处理奔跑人物皮肤...', load_runner_skin)
     print('资源加载完成')
+    return screen
 
 
 def ai_end_interface(screen, game_surface, avoided_count):
@@ -740,6 +802,132 @@ def reset_ai_training():
     if os.path.exists(Q_TABLE_PATH):
         os.remove(Q_TABLE_PATH)
     print('已重置AI训练数据，仅删除 rl_q_table.json')
+
+
+def clear_game_save(conn):
+    """清空最高分和玩家状态，但保留数据库表结构。"""
+    upgrades = _default_upgrades()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM record;")
+    cursor.execute(
+        """
+        UPDATE player_state
+        SET coins = 0, jump_boost = 0, slow_start = 0, magnet = 0,
+            skin_blue = 0, skin_golden = 0, skin_night = 0, skin_runner = 0,
+            equipped_skin = 'default', cloud_text_skin = 0, equipped_cloud_skin = 'default',
+            coin_icecream_skin = 0, equipped_coin_skin = 'default'
+        WHERE id = 1;
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO player_state (id, coins, jump_boost, slow_start, magnet,
+                                            skin_blue, skin_golden, skin_night, skin_runner,
+                                            equipped_skin, cloud_text_skin, equipped_cloud_skin,
+                                            coin_icecream_skin, equipped_coin_skin)
+        VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 'default', 0, 'default', 0, 'default');
+        """
+    )
+    conn.commit()
+    print('已清除游戏存档：最高分、金币、升级和皮肤已重置')
+    return 0, 0, upgrades
+
+
+def _draw_clear_save_page(game_surface, title_font, font, small_font, confirm_choice=None, done_message=None):
+    game_surface.fill((255, 255, 255))
+    width = core.LOGICAL_SIZE[0]
+    title = title_font.render('清除存档', True, core.BLACK)
+    game_surface.blit(title, title.get_rect(center=(width // 2, 72)))
+
+    if done_message:
+        lines = [done_message, '按 ESC 返回开始界面']
+        y = 245
+        for line in lines:
+            surface = font.render(line, True, core.BLACK)
+            game_surface.blit(surface, surface.get_rect(center=(width // 2, y)))
+            y += 58
+        return
+
+    if confirm_choice:
+        lines = [f'即将{confirm_choice}', '确定要清除吗？', '按 Y 确认', '按 N 取消']
+        y = 185
+        for line in lines:
+            surface = font.render(line, True, core.BLACK)
+            game_surface.blit(surface, surface.get_rect(center=(width // 2, y)))
+            y += 55
+        return
+
+    lines = [
+        (font, '请选择要清除的内容：', 135),
+        (font, '[1] 清除游戏存档', 205),
+        (small_font, '包括金币、商城购买、皮肤、最高分', 245),
+        (font, '[2] 清除 AI 训练数据', 320),
+        (small_font, '包括强化学习 Q 表', 360),
+        (font, '[3] 清除全部存档', 435),
+        (small_font, '包括游戏存档和 AI 训练数据', 475),
+        (small_font, '按 ESC 返回', 545),
+    ]
+    for font_obj, text, y in lines:
+        surface = font_obj.render(text, True, core.BLACK)
+        game_surface.blit(surface, surface.get_rect(center=(width // 2, y)))
+
+
+def ClearSaveInterface(screen, game_surface, conn):
+    """带二次确认的清除存档界面。"""
+    title_font = core.get_font(52)
+    font = core.get_font(30)
+    small_font = core.get_font(24)
+    clock = pygame.time.Clock()
+    pending_choice = None
+    done_message = None
+    result_state = {'action': 'back'}
+    choices = {
+        pygame.K_1: ('game', '清除游戏存档'),
+        pygame.K_2: ('ai', '清除 AI 训练数据'),
+        pygame.K_3: ('all', '清除全部存档'),
+    }
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return {'action': 'quit'}
+            if event.type == pygame.VIDEORESIZE:
+                screen = core.resize_screen(event.size)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return result_state if done_message else {'action': 'back'}
+                if done_message:
+                    continue
+                if pending_choice:
+                    if event.key == pygame.K_n:
+                        pending_choice = None
+                    elif event.key == pygame.K_y:
+                        result = {'action': 'cleared'}
+                        if pending_choice[0] in ('game', 'all'):
+                            highest_score, coins, upgrades = clear_game_save(conn)
+                            result.update({'highest_score': highest_score, 'coins': coins, 'upgrades': upgrades})
+                        if pending_choice[0] in ('ai', 'all'):
+                            reset_ai_training()
+                            result['ai_cleared'] = True
+                        done_message = '存档已清除'
+                        pending_choice = None
+                        result['done_message'] = done_message
+                        result_state = result
+                    continue
+                if event.key in choices:
+                    pending_choice = choices[event.key]
+
+        _draw_clear_save_page(
+            game_surface,
+            title_font,
+            font,
+            small_font,
+            confirm_choice=pending_choice[1] if pending_choice else None,
+            done_message=done_message,
+        )
+        core.blit_scaled(game_surface, screen)
+        clock.tick(core.FPS)
+
 
 
 def train_ai(screen, upgrades, sounds, episodes=300, max_steps=5000, reset_training=False):
@@ -957,6 +1145,19 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
         if start_action == 'ai_reset':
             reset_ai_training()
             continue
+        if start_action == 'clear_save':
+            clear_result = ClearSaveInterface(screen, game_surface, conn)
+            screen = pygame.display.get_surface() or screen
+            if clear_result.get('action') == 'quit':
+                return False, highest_score, coins, upgrades
+            if clear_result.get('action') == 'cleared':
+                if 'coins' in clear_result:
+                    coins = clear_result['coins']
+                if 'highest_score' in clear_result:
+                    highest_score = clear_result['highest_score']
+                if 'upgrades' in clear_result:
+                    upgrades = clear_result['upgrades']
+            continue
         if start_action == 'shop':
             coins, upgrades = open_shop(screen, game_surface, sounds, coins, upgrades, conn)
             screen = pygame.display.get_surface() or screen
@@ -1157,16 +1358,33 @@ def main(screen, conn, highest_score, coins, upgrades, sounds):
 if __name__ == '__main__':
     pygame.init()
     screen = create_screen()
-    sounds = load_sounds()
-    warm_asset_caches()
-    conn, highest_score, coins, upgrades = init_database()
+    pygame.display.set_caption('像素恐龙快跑')
+    conn = None
     try:
+        screen, running = draw_loading_screen(screen, '资源加载中...')
+        if not running:
+            raise SystemExit
+
+        screen = warm_asset_caches(screen)
+        sounds_box = {}
+        screen = loading_step(screen, '正在加载音效...', lambda: sounds_box.update({'sounds': load_sounds()}))
+        sounds = sounds_box['sounds']
+
+        db_box = {}
+        screen = loading_step(screen, '正在读取存档...', lambda: db_box.update({'data': init_database()}))
+        conn, highest_score, coins, upgrades = db_box['data']
+        screen = loading_step(screen, '正在检查AI训练数据...', lambda: os.path.exists(Q_TABLE_PATH))
+        draw_loading_screen(screen, '加载完成')
+
         while True:
             flag, highest_score, coins, upgrades = main(screen, conn, highest_score, coins, upgrades, sounds)
             screen = pygame.display.get_surface() or screen
             if not flag:
                 save_player_state(conn, coins, upgrades)
                 break
+    except SystemExit:
+        pass
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
         pygame.quit()
